@@ -1,11 +1,9 @@
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useRef, useCallback, useEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three/webgpu";
+import { initCurby, nextSeed, isCurbyReady } from "./curby";
 import {
-  storage,
   float,
-  vec2,
-  vec3,
   vec4,
   instanceIndex,
   uniform,
@@ -17,126 +15,427 @@ import {
   uv,
   int,
   Break,
-  time,
-  sin,
+  log,
+  pow,
+  max,
   sqrt,
-  add,
 } from "three/tsl";
+import {
+  WIDTH,
+  HEIGHT,
+  TOTAL_PIXELS,
+  COMPILE_MAX_ITERATIONS,
+  MIN_ITERATIONS,
+  BATCH_SIZE,
+  DEFAULT_CENTER_X,
+  DEFAULT_CENTER_Y,
+  DEFAULT_HALF_W,
+  DEFAULT_HALF_H,
+  MIN_ZOOM,
+  MAX_ZOOM,
+  ZOOM_DAMPING,
+  COMPUTE_BUDGET_MS,
+} from "./constants";
+import type { BuddhabrotProps, ViewState, ZoomTarget } from "./types";
+import { getViewMetrics, mouseToFractal } from "./utils/view";
+import { computeOrbit } from "./utils/orbit";
+import { intStorage } from "./utils/tslCompat";
+import type { WebGPURendererLike } from "./utils/tslCompat";
 
-const WIDTH = 1024;
-const HEIGHT = 1024;
-const TOTAL_PIXELS = WIDTH * HEIGHT;
-const MAX_ITERATIONS = 200;
-const BATCH_SIZE = 262144;
-
-export default function Buddhabrot() {
+export default function Buddhabrot({
+  redIter = 50,
+  greenIter = 500,
+  blueIter = 5000,
+  maxIterations = 500,
+  nebulaEnabled = false,
+  nebulaAesthetic = false,
+  rotXZ = 0,
+  rotYW = 0,
+}: BuddhabrotProps) {
   const { viewport } = useThree();
   const frameCount = useRef(0);
+  const needsClearRef = useRef(true);
 
-  const storageBuffer = useMemo(() => {
-    return new THREE.StorageBufferAttribute(new Int32Array(TOTAL_PIXELS), 1);
+  // Initialize CURBy beacon on mount
+  useEffect(() => {
+    initCurby().then(() => {
+      if (isCurbyReady()) {
+        console.log("[Buddhabrot] Using CURBy beacon for true randomness");
+      } else {
+        console.warn(
+          "[Buddhabrot] CURBy unavailable, using Math.random() fallback",
+        );
+      }
+    });
   }, []);
 
-  const computeBufferNode = useMemo(
-    () => storage(storageBuffer, "int", TOTAL_PIXELS).toAtomic(),
-    [storageBuffer],
+  const viewRef = useRef<ViewState>({
+    centerX: DEFAULT_CENTER_X,
+    centerY: DEFAULT_CENTER_Y,
+    zoom: 1,
+  });
+  // Smooth zoom: target that the view lerps toward each frame
+  const zoomTarget = useRef<ZoomTarget>({
+    centerX: DEFAULT_CENTER_X,
+    centerY: DEFAULT_CENTER_Y,
+    zoom: 1,
+    animating: false,
+  });
+  const dragging = useRef(false);
+  const lastMouse = useRef({ x: 0, y: 0 });
+
+  // --- 3 storage buffers for RGB Nebulabrot channels ---
+  const redBuffer = useMemo(
+    () => new THREE.StorageBufferAttribute(new Int32Array(TOTAL_PIXELS), 1),
+    [],
   );
-  const viewBufferNode = useMemo(
-    () => storage(storageBuffer, "int", TOTAL_PIXELS),
-    [storageBuffer],
+  const greenBuffer = useMemo(
+    () => new THREE.StorageBufferAttribute(new Int32Array(TOTAL_PIXELS), 1),
+    [],
+  );
+  const blueBuffer = useMemo(
+    () => new THREE.StorageBufferAttribute(new Int32Array(TOTAL_PIXELS), 1),
+    [],
   );
 
-  const seed = useMemo(() => uniform(0.0), []);
-  const frameCountUniform = useMemo(() => uniform(1.0), []);
-  const [needsClear, setNeedsClear] = useState(true);
+  // Atomic nodes for compute writes
+  const redComputeNode = useMemo(
+    () => intStorage(redBuffer, "int", TOTAL_PIXELS).toAtomic(),
+    [redBuffer],
+  );
+  const greenComputeNode = useMemo(
+    () => intStorage(greenBuffer, "int", TOTAL_PIXELS).toAtomic(),
+    [greenBuffer],
+  );
+  const blueComputeNode = useMemo(
+    () => intStorage(blueBuffer, "int", TOTAL_PIXELS).toAtomic(),
+    [blueBuffer],
+  );
 
+  // Non-atomic nodes for reading (material) and clearing
+  const redViewNode = useMemo(
+    () => intStorage(redBuffer, "int", TOTAL_PIXELS),
+    [redBuffer],
+  );
+  const greenViewNode = useMemo(
+    () => intStorage(greenBuffer, "int", TOTAL_PIXELS),
+    [greenBuffer],
+  );
+  const blueViewNode = useMemo(
+    () => intStorage(blueBuffer, "int", TOTAL_PIXELS),
+    [blueBuffer],
+  );
+
+  const seed = useMemo(() => uniform(0), []);
+  const frameCountUniform = useMemo(() => uniform(1), []);
+  const zoomUniform = useMemo(() => uniform(1), []);
+
+  // Per-channel iteration limit uniforms
+  const redIterUniform = useMemo(() => uniform(float(50)), []);
+  const greenIterUniform = useMemo(() => uniform(float(500)), []);
+  const blueIterUniform = useMemo(() => uniform(float(5000)), []);
+  const maxAllIterUniform = useMemo(() => uniform(float(5000)), []);
+
+  // 4D rotation uniforms (Juddhabrot)
+  const rotCosXZ = useMemo(() => uniform(1), []);
+  const rotSinXZ = useMemo(() => uniform(0), []);
+  const rotCosYW = useMemo(() => uniform(1), []);
+  const rotSinYW = useMemo(() => uniform(0), []);
+
+  // Nebula aesthetic mode uniform
+  const nebulaAestheticUniform = useMemo(() => uniform(0), []);
+  useEffect(() => {
+    nebulaAestheticUniform.value = nebulaAesthetic ? 1 : 0;
+  }, [nebulaAesthetic, nebulaAestheticUniform]);
+
+  // Sync iteration props → uniforms
+  const prevIters = useRef({
+    r: redIter,
+    g: greenIter,
+    b: blueIter,
+    max: maxIterations,
+    nebula: nebulaEnabled,
+    aesthetic: nebulaAesthetic,
+  });
+  useEffect(() => {
+    let effectiveR: number, effectiveG: number, effectiveB: number;
+    if (nebulaAesthetic) {
+      // Nebula aesthetic: always use per-channel limits for color variation
+      effectiveR = redIter;
+      effectiveG = greenIter;
+      effectiveB = blueIter;
+    } else if (nebulaEnabled) {
+      // Nebulabrot: per-channel limits capped by maxIterations
+      effectiveR = Math.min(redIter, maxIterations);
+      effectiveG = Math.min(greenIter, maxIterations);
+      effectiveB = Math.min(blueIter, maxIterations);
+    } else {
+      // Classic mono: all channels use maxIterations
+      effectiveR = maxIterations;
+      effectiveG = maxIterations;
+      effectiveB = maxIterations;
+    }
+    redIterUniform.value = effectiveR;
+    greenIterUniform.value = effectiveG;
+    blueIterUniform.value = effectiveB;
+    maxAllIterUniform.value = Math.max(effectiveR, effectiveG, effectiveB);
+    if (
+      prevIters.current.r !== redIter ||
+      prevIters.current.g !== greenIter ||
+      prevIters.current.b !== blueIter ||
+      prevIters.current.max !== maxIterations ||
+      prevIters.current.nebula !== nebulaEnabled ||
+      prevIters.current.aesthetic !== nebulaAesthetic
+    ) {
+      prevIters.current = {
+        r: redIter,
+        g: greenIter,
+        b: blueIter,
+        max: maxIterations,
+        nebula: nebulaEnabled,
+        aesthetic: nebulaAesthetic,
+      };
+      needsClearRef.current = true;
+      frameCount.current = 0;
+      frameCountUniform.value = 1;
+    }
+  }, [
+    redIter,
+    greenIter,
+    blueIter,
+    maxIterations,
+    nebulaEnabled,
+    nebulaAesthetic,
+    redIterUniform,
+    greenIterUniform,
+    blueIterUniform,
+    maxAllIterUniform,
+    frameCountUniform,
+  ]);
+
+  // Sync 4D rotation props → uniforms
+  const prevRot = useRef({ xz: 0, yw: 0 });
+  useEffect(() => {
+    rotCosXZ.value = Math.cos(rotXZ);
+    rotSinXZ.value = Math.sin(rotXZ);
+    rotCosYW.value = Math.cos(rotYW);
+    rotSinYW.value = Math.sin(rotYW);
+    if (prevRot.current.xz !== rotXZ || prevRot.current.yw !== rotYW) {
+      prevRot.current = { xz: rotXZ, yw: rotYW };
+      needsClearRef.current = true;
+      frameCount.current = 0;
+      frameCountUniform.value = 1;
+    }
+  }, [rotXZ, rotYW, rotCosXZ, rotSinXZ, rotCosYW, rotSinYW, frameCountUniform]);
+
+  // View uniforms
+  const viewCenterX = useMemo(() => uniform(DEFAULT_CENTER_X), []);
+  const viewCenterY = useMemo(() => uniform(DEFAULT_CENTER_Y), []);
+  const viewHalfW = useMemo(() => uniform(DEFAULT_HALF_W), []);
+  const viewHalfH = useMemo(() => uniform(DEFAULT_HALF_H), []);
+
+  // Importance sampling region
+  const sampleMinCx = useMemo(() => uniform(-2.5), []);
+  const sampleMaxCx = useMemo(() => uniform(1), []);
+  const sampleMinCy = useMemo(() => uniform(-1.5), []);
+  const sampleMaxCy = useMemo(() => uniform(1.5), []);
+
+  // --- Clear all 3 buffers ---
   const clearNode = useMemo(() => {
     return Fn(() => {
-      viewBufferNode.element(instanceIndex).assign(int(0));
+      redViewNode.element(instanceIndex).assign(int(0));
+      greenViewNode.element(instanceIndex).assign(int(0));
+      blueViewNode.element(instanceIndex).assign(int(0));
     })().compute(TOTAL_PIXELS);
-  }, [viewBufferNode]);
+  }, [redViewNode, greenViewNode, blueViewNode]);
 
+  // --- Compute: single pass writes to R, G, B channels ---
   const computeNode = useMemo(() => {
     return Fn(() => {
-      // --- Inline hash: 3-step LCG for random number generation ---
-      // Random 1
-      const h1 = instanceIndex.add(uint(seed.mul(1000000.0))).toVar();
-      h1.assign(h1.mul(uint(1103515245)).add(uint(12345)));
-      h1.assign(h1.mul(uint(1103515245)).add(uint(12345)));
-      h1.assign(h1.mul(uint(1103515245)).add(uint(12345)));
-      const r1 = float(h1.bitAnd(uint(0x7fffffff))).div(2147483648.0);
+      // Xorshift RNG seeded by CURBy randomness beacon (true randomness)
+      const h1 = instanceIndex.add(uint(seed.mul(1_000_000))).toVar();
+      h1.assign(h1.bitXor(h1.shiftLeft(uint(13))));
+      h1.assign(h1.bitXor(h1.shiftRight(uint(17))));
+      h1.assign(h1.bitXor(h1.shiftLeft(uint(5))));
+      h1.assign(h1.mul(uint(1597334677)));
+      h1.assign(h1.bitXor(h1.shiftLeft(uint(13))));
+      h1.assign(h1.bitXor(h1.shiftRight(uint(17))));
+      h1.assign(h1.bitXor(h1.shiftLeft(uint(5))));
+      const r1 = float(h1.bitAnd(uint(0x7fffffff))).div(2_147_483_648);
 
-      // Random 2
       const h2 = instanceIndex
-        .add(uint(seed.mul(2000000.0)))
-        .add(uint(789))
+        .add(uint(seed.mul(2_000_000)))
+        .add(uint(7919))
         .toVar();
-      h2.assign(h2.mul(uint(1103515245)).add(uint(12345)));
-      h2.assign(h2.mul(uint(1103515245)).add(uint(12345)));
-      h2.assign(h2.mul(uint(1103515245)).add(uint(12345)));
-      const r2 = float(h2.bitAnd(uint(0x7fffffff))).div(2147483648.0);
+      h2.assign(h2.bitXor(h2.shiftLeft(uint(13))));
+      h2.assign(h2.bitXor(h2.shiftRight(uint(17))));
+      h2.assign(h2.bitXor(h2.shiftLeft(uint(5))));
+      h2.assign(h2.mul(uint(2654435761)));
+      h2.assign(h2.bitXor(h2.shiftLeft(uint(13))));
+      h2.assign(h2.bitXor(h2.shiftRight(uint(17))));
+      h2.assign(h2.bitXor(h2.shiftLeft(uint(5))));
+      const r2 = float(h2.bitAnd(uint(0x7fffffff))).div(2_147_483_648);
 
-      // Sample c in the Mandelbrot region
-      const cx = r1.mul(4.0).sub(2.5); // [-2.5, 1.5]
-      const cy = r2.mul(4.0).sub(2.0); // [-2.0, 2.0]
+      const h3 = instanceIndex
+        .add(uint(seed.mul(3_000_000)))
+        .add(uint(104729))
+        .toVar();
+      h3.assign(h3.bitXor(h3.shiftLeft(uint(13))));
+      h3.assign(h3.bitXor(h3.shiftRight(uint(17))));
+      h3.assign(h3.bitXor(h3.shiftLeft(uint(5))));
+      h3.assign(h3.mul(uint(2246822519)));
+      const r3 = float(h3.bitAnd(uint(0x7fffffff))).div(2_147_483_648);
 
-      // --- Pass 1: Check if orbit escapes ---
-      const zx = float(0.0).toVar();
-      const zy = float(0.0).toVar();
-      const escaped = int(0).toVar();
+      // Importance sampling
+      const importanceFraction = float(1)
+        .sub(float(1).div(zoomUniform))
+        .clamp(0, 0.85);
 
-      Loop(MAX_ITERATIONS, () => {
-        // .toVar() forces TSL to emit declarations before the assigns,
-        // preventing the aliasing bug where zy's update would use new zx
+      const cx = float(0).toVar();
+      const cy = float(0).toVar();
+
+      If(r3.lessThan(importanceFraction), () => {
+        cx.assign(r1.mul(sampleMaxCx.sub(sampleMinCx)).add(sampleMinCx));
+        cy.assign(r2.mul(sampleMaxCy.sub(sampleMinCy)).add(sampleMinCy));
+      }).Else(() => {
+        cx.assign(r1.mul(3.5).sub(2.5));
+        cy.assign(r2.mul(3).sub(1.5));
+      });
+
+      // Pass 1: Quick escape check (first MIN_ITERATIONS)
+      const zx = float(0).toVar();
+      const zy = float(0).toVar();
+      const quickEscape = int(0).toVar();
+
+      Loop(MIN_ITERATIONS, () => {
         const newx = zx.mul(zx).sub(zy.mul(zy)).add(cx).toVar();
-        const newy = zx.mul(zy).mul(2.0).add(cy).toVar();
+        const newy = zx.mul(zy).mul(2).add(cy).toVar();
         zx.assign(newx);
         zy.assign(newy);
-
-        If(zx.mul(zx).add(zy.mul(zy)).greaterThan(4.0), () => {
-          escaped.assign(1);
+        If(zx.mul(zx).add(zy.mul(zy)).greaterThan(4), () => {
+          quickEscape.assign(1);
           Break();
         });
       });
 
-      // --- Pass 2: Re-trace and record the orbit ---
-      If(escaped.equal(1), () => {
-        zx.assign(0.0);
-        zy.assign(0.0);
+      // Pass 1 continued: iterate to max(R,G,B), track escape iteration
+      If(quickEscape.equal(0), () => {
+        const escaped = int(0).toVar();
+        const escapeIter = float(MIN_ITERATIONS).toVar();
 
-        Loop(MAX_ITERATIONS, () => {
+        Loop(COMPILE_MAX_ITERATIONS - MIN_ITERATIONS, () => {
+          If(escapeIter.greaterThanEqual(maxAllIterUniform), () => {
+            Break();
+          });
+          escapeIter.addAssign(1);
+
           const newx = zx.mul(zx).sub(zy.mul(zy)).add(cx).toVar();
-          const newy = zx.mul(zy).mul(2.0).add(cy).toVar();
+          const newy = zx.mul(zy).mul(2).add(cy).toVar();
           zx.assign(newx);
           zy.assign(newy);
 
-          // Map orbit point to pixel coordinates
-          // Viewing window: x in [-2.5, 1.5], y in [-2.0, 2.0]
-          const ux = zx.add(2.5).div(4.0);
-          const uy = zy.add(2.0).div(4.0);
-
-          If(
-            ux
-              .greaterThanEqual(0.0)
-              .and(ux.lessThan(1.0))
-              .and(uy.greaterThanEqual(0.0))
-              .and(uy.lessThan(1.0)),
-            () => {
-              const px = uint(ux.mul(float(WIDTH)));
-              const py = uint(uy.mul(float(HEIGHT)));
-              const idx = py.mul(uint(WIDTH)).add(px);
-              atomicAdd(computeBufferNode.element(idx), int(1));
-            },
-          );
-
-          If(zx.mul(zx).add(zy.mul(zy)).greaterThan(4.0), () => {
+          If(zx.mul(zx).add(zy.mul(zy)).greaterThan(4), () => {
+            escaped.assign(1);
             Break();
+          });
+        });
+
+        // Pass 2: Re-trace and write to appropriate channel buffers
+        If(escaped.equal(1), () => {
+          // Determine which channels get this orbit
+          const writeR = int(0).toVar();
+          const writeG = int(0).toVar();
+          const writeB = int(0).toVar();
+          If(escapeIter.lessThanEqual(redIterUniform), () => {
+            writeR.assign(1);
+          });
+          If(escapeIter.lessThanEqual(greenIterUniform), () => {
+            writeG.assign(1);
+          });
+          If(escapeIter.lessThanEqual(blueIterUniform), () => {
+            writeB.assign(1);
+          });
+
+          zx.assign(0);
+          zy.assign(0);
+          const retraceIter = float(0).toVar();
+
+          Loop(COMPILE_MAX_ITERATIONS, () => {
+            If(retraceIter.greaterThanEqual(escapeIter), () => {
+              Break();
+            });
+            retraceIter.addAssign(1);
+
+            const newx = zx.mul(zx).sub(zy.mul(zy)).add(cx).toVar();
+            const newy = zx.mul(zy).mul(2).add(cy).toVar();
+            zx.assign(newx);
+            zy.assign(newy);
+
+            // Apply 4D rotation (Juddhabrot) before projecting
+            const rzx = zx.mul(rotCosXZ).sub(cx.mul(rotSinXZ));
+            const rzy = zy.mul(rotCosYW).sub(cy.mul(rotSinYW));
+
+            // Map rotated orbit point to pixel (rotated: head up)
+            const fracX = rzy;
+            const fracY = rzx.negate();
+            const ux = fracX.sub(viewCenterX).div(viewHalfW.mul(2)).add(0.5);
+            const uy = fracY.sub(viewCenterY).div(viewHalfH.mul(2)).add(0.5);
+
+            If(
+              ux
+                .greaterThanEqual(0)
+                .and(ux.lessThan(1))
+                .and(uy.greaterThanEqual(0))
+                .and(uy.lessThan(1)),
+              () => {
+                const px = uint(ux.mul(float(WIDTH)));
+                const py = uint(uy.mul(float(HEIGHT)));
+                const idx = py.mul(uint(WIDTH)).add(px);
+
+                If(writeR.equal(1), () => {
+                  atomicAdd(redComputeNode.element(idx), int(1));
+                });
+                If(writeG.equal(1), () => {
+                  atomicAdd(greenComputeNode.element(idx), int(1));
+                });
+                If(writeB.equal(1), () => {
+                  atomicAdd(blueComputeNode.element(idx), int(1));
+                });
+              },
+            );
+
+            If(zx.mul(zx).add(zy.mul(zy)).greaterThan(4), () => {
+              Break();
+            });
           });
         });
       });
     })().compute(BATCH_SIZE);
-  }, [computeBufferNode, seed]);
+  }, [
+    redComputeNode,
+    greenComputeNode,
+    blueComputeNode,
+    seed,
+    viewCenterX,
+    viewCenterY,
+    viewHalfW,
+    viewHalfH,
+    zoomUniform,
+    maxAllIterUniform,
+    redIterUniform,
+    greenIterUniform,
+    blueIterUniform,
+    sampleMinCx,
+    sampleMaxCx,
+    sampleMinCy,
+    sampleMaxCy,
+    rotCosXZ,
+    rotSinXZ,
+    rotCosYW,
+    rotSinYW,
+  ]);
 
+  // --- Material: composite RGB from 3 channels ---
   const material = useMemo(() => {
     const m = new THREE.MeshBasicNodeMaterial();
     m.colorNode = Fn(() => {
@@ -145,36 +444,276 @@ export default function Buddhabrot() {
       const py = uint(vUv.y.mul(float(HEIGHT)));
       const index = py.mul(uint(WIDTH)).add(px);
 
-      const count = float(viewBufferNode.element(index));
+      const countR = float(redViewNode.element(index));
+      const countG = float(greenViewNode.element(index));
+      const countB = float(blueViewNode.element(index));
 
-      // Adaptive exposure: normalize by frame count
-      const normalized = count.div(frameCountUniform.mul(2.0));
-      const intensity = sqrt(normalized).clamp(0.0, 1.0);
+      const fc = max(frameCountUniform, 1);
+      const normR = countR.div(fc);
+      const normG = countG.div(fc);
+      const normB = countB.div(fc);
 
-      const cosmicBlue = vec3(0.3, 0.6, 1.0);
-      const bgPulse = sin(time.mul(0.5)).smoothstep(-1.0, 1.0).mul(0.02);
-      const bg = vec3(0.005, 0.005, add(0.02, bgPulse));
+      const r = float(0).toVar();
+      const g = float(0).toVar();
+      const b = float(0).toVar();
 
-      return vec4(intensity.mul(cosmicBlue).add(bg), 1.0);
+      If(nebulaAestheticUniform.greaterThan(0.5), () => {
+        // --- Nebula Aesthetic Mode ---
+        // Softer tone curve: sqrt(log) reveals more shadow detail for gaseous look
+        const iR = sqrt(log(normR.mul(8).add(1)).div(log(float(50)))).clamp(
+          0,
+          1,
+        );
+        const iG = sqrt(log(normG.mul(8).add(1)).div(log(float(50)))).clamp(
+          0,
+          1,
+        );
+        const iB = sqrt(log(normB.mul(8).add(1)).div(log(float(50)))).clamp(
+          0,
+          1,
+        );
+
+        // Color matrix: remap channels to nebula palette
+        // Short iters (R) → warm amber/red
+        // Mid iters (G)   → magenta/purple
+        // Long iters (B)  → cyan/blue
+        const outR = iR.mul(0.85).add(iG.mul(0.5)).add(iB.mul(0.1));
+        const outG = iR.mul(0.2).add(iG.mul(0.1)).add(iB.mul(0.6));
+        const outB = iR.mul(0.08).add(iG.mul(0.65)).add(iB.mul(1));
+
+        // Gamma correction (lower = brighter midtones)
+        const gR = pow(outR.clamp(0, 1), float(0.75));
+        const gG = pow(outG.clamp(0, 1), float(0.75));
+        const gB = pow(outB.clamp(0, 1), float(0.75));
+
+        // Soft bloom glow
+        const lum = gR.mul(0.2126).add(gG.mul(0.7152)).add(gB.mul(0.0722));
+        const glow = pow(lum, float(2)).mul(0.25);
+
+        // Subtle warm shift at bottom, cool at top
+        const warmth = float(1).sub(vUv.y).mul(0.1).mul(lum);
+
+        r.assign(gR.add(glow).add(warmth).clamp(0, 1));
+        g.assign(gG.add(glow).clamp(0, 1));
+        b.assign(gB.add(glow).sub(warmth.mul(0.5)).clamp(0, 1));
+      }).Else(() => {
+        // --- Classic Mode ---
+        const intensityR = log(normR.mul(5).add(1))
+          .div(log(float(20)))
+          .clamp(0, 1);
+        const intensityG = log(normG.mul(5).add(1))
+          .div(log(float(20)))
+          .clamp(0, 1);
+        const intensityB = log(normB.mul(5).add(1))
+          .div(log(float(20)))
+          .clamp(0, 1);
+
+        const cR = pow(intensityR, float(0.85));
+        const cG = pow(intensityG, float(0.85));
+        const cB = pow(intensityB, float(0.85));
+
+        const lum = cR.mul(0.2126).add(cG.mul(0.7152)).add(cB.mul(0.0722));
+        const glow = pow(lum, float(3)).mul(0.12);
+
+        r.assign(cR.add(glow).clamp(0, 1));
+        g.assign(cG.add(glow).clamp(0, 1));
+        b.assign(cB.add(glow).clamp(0, 1));
+      });
+
+      return vec4(r, g, b, 1);
     })();
     return m;
-  }, [viewBufferNode]);
+  }, [
+    redViewNode,
+    greenViewNode,
+    blueViewNode,
+    frameCountUniform,
+    nebulaAestheticUniform,
+  ]);
+
+  // --- Sync view uniforms and trigger clear ---
+  const applyView = useCallback(() => {
+    const v = viewRef.current;
+    const halfW = DEFAULT_HALF_W / v.zoom;
+    const halfH = DEFAULT_HALF_H / v.zoom;
+    viewCenterX.value = v.centerX;
+    viewCenterY.value = v.centerY;
+    viewHalfW.value = halfW;
+    viewHalfH.value = halfH;
+    zoomUniform.value = v.zoom;
+
+    const viewMinX = v.centerX - halfW;
+    const viewMaxX = v.centerX + halfW;
+    const viewMinY = v.centerY - halfH;
+    const viewMaxY = v.centerY + halfH;
+    sampleMinCy.value = Math.max(-1.5, viewMinX - halfW);
+    sampleMaxCy.value = Math.min(1.5, viewMaxX + halfW);
+    sampleMinCx.value = Math.max(-2.5, -(viewMaxY + halfH));
+    sampleMaxCx.value = Math.min(1, -(viewMinY - halfH));
+
+    needsClearRef.current = true;
+    frameCount.current = 0;
+    frameCountUniform.value = 1;
+  }, [
+    viewCenterX,
+    viewCenterY,
+    viewHalfW,
+    viewHalfH,
+    frameCountUniform,
+    zoomUniform,
+    sampleMinCx,
+    sampleMaxCx,
+    sampleMinCy,
+    sampleMaxCy,
+  ]);
+
+  // --- Mouse handlers: zoom, pan, orbit tracing ---
+  const { gl } = useThree();
+  useEffect(() => {
+    const canvas = gl.domElement;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const t = zoomTarget.current;
+      const zoomFactor = e.deltaY > 0 ? 0.85 : 1.18;
+      const { fracX, fracY, mx, my } = mouseToFractal(
+        e.clientX,
+        e.clientY,
+        viewRef.current,
+        canvas,
+      );
+      const newZoom = Math.min(
+        MAX_ZOOM,
+        Math.max(MIN_ZOOM, t.zoom * zoomFactor),
+      );
+      const newHalfW = DEFAULT_HALF_W / newZoom;
+      const newHalfH = DEFAULT_HALF_H / newZoom;
+      t.centerX = fracX - (mx - 0.5) * 2 * newHalfW;
+      t.centerY = fracY - (my - 0.5) * 2 * newHalfH;
+      t.zoom = newZoom;
+      t.animating = true;
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 0) {
+        dragging.current = true;
+        lastMouse.current = { x: e.clientX, y: e.clientY };
+        globalThis.__buddhabrotOrbit = null;
+      }
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (dragging.current) {
+        // Pan — apply instantly and keep zoom target in sync
+        const v = viewRef.current;
+        const t = zoomTarget.current;
+        const { meshSize } = getViewMetrics(canvas);
+        const dx = (e.clientX - lastMouse.current.x) / meshSize;
+        const dy = (e.clientY - lastMouse.current.y) / meshSize;
+        const halfW = DEFAULT_HALF_W / v.zoom;
+        const halfH = DEFAULT_HALF_H / v.zoom;
+        const panX = dx * 2 * halfW;
+        const panY = dy * 2 * halfH;
+        v.centerX -= panX;
+        v.centerY += panY;
+        t.centerX -= panX;
+        t.centerY += panY;
+        lastMouse.current = { x: e.clientX, y: e.clientY };
+        applyView();
+        globalThis.__buddhabrotOrbit = null;
+      } else if (globalThis.__buddhabrotOrbitEnabled) {
+        globalThis.__buddhabrotOrbit = computeOrbit(
+          e.clientX,
+          e.clientY,
+          viewRef.current,
+          canvas,
+          { red: redIter, green: greenIter, blue: blueIter },
+          { xz: rotXZ, yw: rotYW },
+        );
+      } else {
+        globalThis.__buddhabrotOrbit = null;
+      }
+    };
+
+    const onMouseUp = () => {
+      dragging.current = false;
+    };
+
+    const onMouseLeave = () => {
+      globalThis.__buddhabrotOrbit = null;
+    };
+
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    canvas.addEventListener("mousedown", onMouseDown);
+    globalThis.addEventListener("mousemove", onMouseMove);
+    globalThis.addEventListener("mouseup", onMouseUp);
+    canvas.addEventListener("mouseleave", onMouseLeave);
+
+    return () => {
+      canvas.removeEventListener("wheel", onWheel);
+      canvas.removeEventListener("mousedown", onMouseDown);
+      globalThis.removeEventListener("mousemove", onMouseMove);
+      globalThis.removeEventListener("mouseup", onMouseUp);
+      canvas.removeEventListener("mouseleave", onMouseLeave);
+    };
+  }, [gl, applyView, redIter, greenIter, blueIter, rotXZ, rotYW]);
+
+  // Time-budgeted rendering: target ~16ms frames, adapt dispatches
+  const lastFrameTime = useRef(8);
 
   useFrame(({ gl }) => {
-    if ((gl as any).compute) {
-      if (needsClear) {
-        (gl as any).compute(clearNode);
-        setNeedsClear(false);
+    // Smooth zoom animation: lerp current view toward target
+    const t = zoomTarget.current;
+    const v = viewRef.current;
+    if (t.animating) {
+      v.zoom += (t.zoom - v.zoom) * ZOOM_DAMPING;
+      v.centerX += (t.centerX - v.centerX) * ZOOM_DAMPING;
+      v.centerY += (t.centerY - v.centerY) * ZOOM_DAMPING;
+
+      // Settle when close enough to target
+      const zoomDiff = Math.abs(v.zoom - t.zoom) / Math.max(t.zoom, 0.001);
+      const posDiff =
+        Math.abs(v.centerX - t.centerX) + Math.abs(v.centerY - t.centerY);
+      if (zoomDiff < 0.001 && posDiff < 0.00001) {
+        v.zoom = t.zoom;
+        v.centerX = t.centerX;
+        v.centerY = t.centerY;
+        t.animating = false;
       }
-      seed.value = Math.random();
-      (gl as any).compute(computeNode);
-      frameCount.current++;
+      applyView();
+    }
+
+    const gpu = gl as unknown as WebGPURendererLike;
+    if (gpu.compute) {
+      if (needsClearRef.current) {
+        gpu.compute(clearNode);
+        needsClearRef.current = false;
+      }
+
+      const start = performance.now();
+      const passTime = Math.max(lastFrameTime.current, 1);
+      const maxPasses = Math.max(1, Math.floor(COMPUTE_BUDGET_MS / passTime));
+
+      let passes = 0;
+      for (let i = 0; i < maxPasses; i++) {
+        seed.value = nextSeed();
+        gpu.compute(computeNode);
+        passes++;
+      }
+
+      const elapsed = performance.now() - start;
+      lastFrameTime.current =
+        lastFrameTime.current * 0.7 + (elapsed / Math.max(passes, 1)) * 0.3;
+
+      frameCount.current += passes;
       frameCountUniform.value = frameCount.current;
     }
   });
 
+  const side = Math.min(viewport.width, viewport.height);
+
   return (
-    <mesh scale={[viewport.width, viewport.height, 1]}>
+    <mesh scale={[side, side, 1]}>
       <planeGeometry args={[1, 1]} />
       <primitive object={material} attach="material" />
     </mesh>
