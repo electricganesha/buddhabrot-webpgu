@@ -23,6 +23,11 @@ export interface ControlPanelProps {
   readonly rotationEnabled: boolean;
   readonly autoRotate: boolean;
   readonly orbitEnabled: boolean;
+  readonly ghostModeEnabled: boolean;
+  readonly heartbeatEnabled: boolean;
+  readonly heartbeatSpeed: number;
+  readonly heartbeatIntensity: number;
+  readonly heartbeatWaveform: "sin" | "cos" | "tan" | "sqr";
 
   // Rotation angles (radians)
   readonly rotXZ: number;
@@ -38,6 +43,13 @@ export interface ControlPanelProps {
   readonly onRotationChange: (enabled: boolean) => void;
   readonly onAutoRotateChange: (enabled: boolean) => void;
   readonly onOrbitChange: (enabled: boolean) => void;
+  readonly onGhostModeChange: (enabled: boolean) => void;
+  readonly onHeartbeatChange: (enabled: boolean) => void;
+  readonly onHeartbeatSpeedChange: (speed: number) => void;
+  readonly onHeartbeatIntensityChange: (intensity: number) => void;
+  readonly onHeartbeatWaveformChange: (
+    waveform: "sin" | "cos" | "tan" | "sqr",
+  ) => void;
 }
 
 /** Props for {@link SliderRow}. */
@@ -56,7 +68,6 @@ function SliderRow({
   label,
   value,
   color,
-  dotColor,
   onUpdateIter,
 }: SliderRowProps) {
   return (
@@ -68,16 +79,6 @@ function SliderRow({
         height: 24,
       }}
     >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: dotColor,
-          flexShrink: 0,
-          boxShadow: `0 0 6px ${dotColor}`,
-        }}
-      />
       <span
         style={{
           opacity: 0.5,
@@ -213,6 +214,78 @@ function RotationSlider({
   );
 }
 
+/** Props for {@link ControlSection}. */
+interface ControlSectionProps {
+  readonly title: string;
+  readonly defaultOpen?: boolean;
+  readonly children: React.ReactNode;
+}
+
+/** Collapsible HTML section for grouping controls smoothly. */
+function ControlSection({
+  title,
+  defaultOpen = false,
+  children,
+}: ControlSectionProps) {
+  return (
+    <details
+      open={defaultOpen}
+      style={{
+        borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+        paddingTop: 8,
+        marginTop: 8,
+        paddingBottom: 4,
+      }}
+    >
+      <summary
+        style={{
+          fontSize: 10,
+          opacity: 0.6,
+          textTransform: "uppercase",
+          letterSpacing: 1.2,
+          cursor: "pointer",
+          userSelect: "none",
+          listStyle: "none", // hides default widget in some browsers
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: 8,
+        }}
+      >
+        <span
+          style={{
+            display: "inline-block",
+            transition: "transform 0.2s",
+            transformOrigin: "center",
+          }}
+          className="details-arrow"
+        >
+          ▶
+        </span>
+        {title}
+        <style>{`
+          details[open] summary .details-arrow {
+            transform: rotate(90deg);
+          }
+          details summary::-webkit-details-marker {
+            display: none;
+          }
+        `}</style>
+      </summary>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          paddingLeft: 4,
+        }}
+      >
+        {children}
+      </div>
+    </details>
+  );
+}
+
 /** Floating control panel for iteration counts, nebula mode, and rotation. */
 export default function ControlPanel({
   redIter,
@@ -237,6 +310,16 @@ export default function ControlPanel({
   onRotationChange,
   onAutoRotateChange,
   onOrbitChange,
+  ghostModeEnabled,
+  onGhostModeChange,
+  heartbeatEnabled,
+  heartbeatSpeed,
+  heartbeatIntensity,
+  heartbeatWaveform,
+  onHeartbeatChange,
+  onHeartbeatSpeedChange,
+  onHeartbeatIntensityChange,
+  onHeartbeatWaveformChange,
 }: ControlPanelProps) {
   const showChannels = nebulaEnabled || nebulaAestheticEnabled;
   const [collapsed, setCollapsed] = useState(false);
@@ -302,11 +385,7 @@ export default function ControlPanel({
           marginBottom: collapsed ? 0 : 2,
         }}
       >
-        {collapsed
-          ? "Settings"
-          : showChannels
-            ? "Nebulabrot Channels"
-            : "Iterations"}
+        Settings
       </div>
 
       {/* Collapsible content */}
@@ -320,124 +399,269 @@ export default function ControlPanel({
         <div
           style={{
             overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
           }}
         >
-          {showChannels ? (
-            <>
+          <ControlSection
+            title={showChannels ? "Nebulabrot Channels" : "Iterations"}
+            defaultOpen={true}
+          >
+            {showChannels ? (
+              <>
+                <SliderRow
+                  channel="r"
+                  label="Red"
+                  value={redIter}
+                  color="#ff4444"
+                  dotColor="#ff6644"
+                  onUpdateIter={onUpdateIter}
+                />
+                <SliderRow
+                  channel="g"
+                  label="Green"
+                  value={greenIter}
+                  color="#44dd44"
+                  dotColor="#44ff66"
+                  onUpdateIter={onUpdateIter}
+                />
+                <SliderRow
+                  channel="b"
+                  label="Blue"
+                  value={blueIter}
+                  color="#4488ff"
+                  dotColor="#6688ff"
+                  onUpdateIter={onUpdateIter}
+                />
+              </>
+            ) : (
               <SliderRow
-                channel="r"
-                label="Red"
-                value={redIter}
-                color="#ff4444"
-                dotColor="#ff6644"
+                channel="max"
+                label=""
+                value={maxIterations}
+                color="#aaa"
+                dotColor="#999"
                 onUpdateIter={onUpdateIter}
-              />
-              <SliderRow
-                channel="g"
-                label="Green"
-                value={greenIter}
-                color="#44dd44"
-                dotColor="#44ff66"
-                onUpdateIter={onUpdateIter}
-              />
-              <SliderRow
-                channel="b"
-                label="Blue"
-                value={blueIter}
-                color="#4488ff"
-                dotColor="#6688ff"
-                onUpdateIter={onUpdateIter}
-              />
-            </>
-          ) : (
-            <SliderRow
-              channel="max"
-              label=""
-              value={maxIterations}
-              color="#aaa"
-              dotColor="#999"
-              onUpdateIter={onUpdateIter}
-            />
-          )}
-
-          <Toggle
-            id="nebula-toggle"
-            label="Nebulabrot color mode"
-            checked={nebulaEnabled}
-            onChange={onNebulaChange}
-          />
-
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Toggle
-              id="color-core-toggle"
-              label="Color highlight mode"
-              checked={colorCoreEnabled}
-              onChange={onColorCoreChange}
-              accentColor={coreColorHex}
-            />
-            {colorCoreEnabled && (
-              <input
-                type="color"
-                value={coreColorHex}
-                onChange={(e) => onCoreColorChange(e.target.value)}
-                style={{
-                  margin: 0,
-                  padding: 0,
-                  border: "none",
-                  width: 14,
-                  height: 14,
-                  background: "transparent",
-                  cursor: "pointer",
-                }}
               />
             )}
-          </div>
+          </ControlSection>
 
-          {/* <Toggle
-        id="aesthetic-toggle"
-        label="Nebula palette"
-        checked={nebulaAestheticEnabled}
-        onChange={onAestheticChange}
-        accentColor="#c084fc"
-      /> */}
-          <Toggle
-            id="rotation-toggle"
-            label="4D rotation (Juddhabrot)"
-            checked={rotationEnabled}
-            onChange={onRotationChange}
-            accentColor="#c084fc"
-          />
-          <Toggle
-            id="orbit-toggle"
-            label="Orbit tracking"
-            checked={orbitEnabled}
-            onChange={onOrbitChange}
-            accentColor="#4488ff"
-          />
+          <ControlSection title="Colors" defaultOpen={true}>
+            <Toggle
+              id="nebula-toggle"
+              label="Nebulabrot color mode"
+              checked={nebulaEnabled}
+              onChange={onNebulaChange}
+            />
 
-          {rotationEnabled && (
-            <div style={{ marginTop: 2, paddingLeft: 4 }}>
-              <RotationSlider
-                plane="xz"
-                value={rotXZ}
-                disabled={autoRotate}
-                onUpdateRot={onUpdateRot}
-              />
-              <RotationSlider
-                plane="yw"
-                value={rotYW}
-                disabled={autoRotate}
-                onUpdateRot={onUpdateRot}
-              />
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <Toggle
-                id="auto-rotate-toggle"
-                label="Auto-rotate"
-                checked={autoRotate}
-                onChange={onAutoRotateChange}
-                accentColor="#c084fc"
+                id="color-core-toggle"
+                label="Color highlight mode"
+                checked={colorCoreEnabled}
+                onChange={onColorCoreChange}
+                accentColor={coreColorHex}
               />
+              {colorCoreEnabled && (
+                <input
+                  type="color"
+                  value={coreColorHex}
+                  onChange={(e) => onCoreColorChange(e.target.value)}
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    border: "none",
+                    width: 14,
+                    height: 14,
+                    background: "transparent",
+                    cursor: "pointer",
+                  }}
+                />
+              )}
             </div>
-          )}
+          </ControlSection>
+
+          <ControlSection title="Animation & Effects" defaultOpen={false}>
+            <Toggle
+              id="ghost-mode-toggle"
+              label="Ghost mode (Sample Accumulation)"
+              checked={ghostModeEnabled}
+              onChange={onGhostModeChange}
+              accentColor="#fff"
+            />
+            <Toggle
+              id="heartbeat-toggle"
+              label="Nebulabrot Pulse (Heartbeat)"
+              checked={heartbeatEnabled}
+              onChange={onHeartbeatChange}
+              accentColor="#4488ff"
+            />
+
+            {heartbeatEnabled && (
+              <div style={{ marginTop: 2, paddingLeft: 4 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    height: 24,
+                  }}
+                >
+                  <span
+                    style={{
+                      opacity: 0.5,
+                      fontSize: 11,
+                      width: 44,
+                      textAlign: "right",
+                    }}
+                  >
+                    Speed
+                  </span>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={10.0}
+                    step={0.1}
+                    value={heartbeatSpeed}
+                    onChange={(e) =>
+                      onHeartbeatSpeedChange(Number(e.target.value))
+                    }
+                    style={{ width: 152, accentColor: "#4488ff", height: 4 }}
+                  />
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    height: 24,
+                  }}
+                >
+                  <span
+                    style={{
+                      opacity: 0.5,
+                      fontSize: 11,
+                      width: 44,
+                      textAlign: "right",
+                    }}
+                  >
+                    Power
+                  </span>
+                  <input
+                    type="range"
+                    min={0.0}
+                    max={1.0}
+                    step={0.01}
+                    value={heartbeatIntensity}
+                    onChange={(e) =>
+                      onHeartbeatIntensityChange(Number(e.target.value))
+                    }
+                    style={{ width: 152, accentColor: "#4488ff", height: 4 }}
+                  />
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    height: 24,
+                    marginTop: 2,
+                  }}
+                >
+                  <span
+                    style={{
+                      opacity: 0.5,
+                      fontSize: 11,
+                      width: 44,
+                      textAlign: "right",
+                    }}
+                  >
+                    Shape
+                  </span>
+                  <select
+                    value={heartbeatWaveform}
+                    onChange={(e) =>
+                      onHeartbeatWaveformChange(
+                        e.target.value as "sin" | "cos" | "tan" | "sqr",
+                      )
+                    }
+                    style={{
+                      background: "rgba(0,0,0,0.5)",
+                      color: "white",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      padding: "2px 4px",
+                      width: 152,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="sin" style={{ color: "black" }}>
+                      Sine (Smooth)
+                    </option>
+                    <option value="cos" style={{ color: "black" }}>
+                      Cosine (Shifted)
+                    </option>
+                    <option value="tan" style={{ color: "black" }}>
+                      Tangent (Sharp)
+                    </option>
+                    <option value="sqr" style={{ color: "black" }}>
+                      Square (Flash)
+                    </option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </ControlSection>
+
+          <ControlSection title="Geometry & Tracking" defaultOpen={false}>
+            <Toggle
+              id="rotation-toggle"
+              label="4D rotation (Juddhabrot)"
+              checked={rotationEnabled}
+              onChange={onRotationChange}
+              accentColor="#c084fc"
+            />
+            {rotationEnabled && (
+              <div
+                style={{
+                  marginTop: 2,
+                  paddingLeft: 8,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                <RotationSlider
+                  plane="xz"
+                  value={rotXZ}
+                  disabled={autoRotate}
+                  onUpdateRot={onUpdateRot}
+                />
+                <RotationSlider
+                  plane="yw"
+                  value={rotYW}
+                  disabled={autoRotate}
+                  onUpdateRot={onUpdateRot}
+                />
+                <Toggle
+                  id="auto-rotate-toggle"
+                  label="Auto-rotate"
+                  checked={autoRotate}
+                  onChange={onAutoRotateChange}
+                  accentColor="#c084fc"
+                />
+              </div>
+            )}
+
+            <Toggle
+              id="orbit-toggle"
+              label="Orbit tracking"
+              checked={orbitEnabled}
+              onChange={onOrbitChange}
+              accentColor="#4488ff"
+            />
+          </ControlSection>
         </div>
       </div>
     </div>

@@ -20,6 +20,11 @@ export interface BuddhabrotProps {
   readonly nebulaAesthetic?: boolean;
   readonly colorCoreEnabled?: boolean;
   readonly coreColorHex?: string;
+  readonly ghostModeEnabled?: boolean;
+  readonly heartbeatEnabled?: boolean;
+  readonly heartbeatSpeed?: number;
+  readonly heartbeatIntensity?: number;
+  readonly heartbeatWaveform?: "sin" | "cos" | "tan" | "sqr";
   readonly rotXZ?: number;
   readonly rotYW?: number;
 }

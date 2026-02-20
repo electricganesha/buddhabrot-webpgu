@@ -33,6 +33,18 @@ function App() {
   const colorCoreEnabledRef = useRef(false);
   const [coreColorHex, setCoreColorHex] = useState("#ffd700");
   const coreColorHexRef = useRef("#ffd700");
+  const [ghostModeEnabled, setGhostModeEnabled] = useState(false);
+  const ghostModeEnabledRef = useRef(false);
+  const [heartbeatEnabled, setHeartbeatEnabled] = useState(false);
+  const heartbeatEnabledRef = useRef(false);
+  const [heartbeatSpeed, setHeartbeatSpeed] = useState(2.0);
+  const heartbeatSpeedRef = useRef(2.0);
+  const [heartbeatIntensity, setHeartbeatIntensity] = useState(0.8);
+  const heartbeatIntensityRef = useRef(0.8);
+  const [heartbeatWaveform, setHeartbeatWaveform] = useState<
+    "sin" | "cos" | "tan" | "sqr"
+  >("sin");
+  const heartbeatWaveformRef = useRef<"sin" | "cos" | "tan" | "sqr">("sin");
   const [rotationEnabled, setRotationEnabled] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const autoRotateRef = useRef(false);
@@ -95,6 +107,11 @@ function App() {
               nebulaAesthetic={nebulaAestheticEnabledRef.current}
               colorCoreEnabled={colorCoreEnabledRef.current}
               coreColorHex={coreColorHexRef.current}
+              ghostModeEnabled={ghostModeEnabledRef.current}
+              heartbeatEnabled={heartbeatEnabledRef.current}
+              heartbeatSpeed={heartbeatSpeedRef.current}
+              heartbeatIntensity={heartbeatIntensityRef.current}
+              heartbeatWaveform={heartbeatWaveformRef.current}
               rotXZ={rotRef.current.xz}
               rotYW={rotRef.current.yw}
             />,
@@ -213,6 +230,39 @@ function App() {
     globalThis.__buddhabrotUpdate?.();
   }, []);
 
+  const handleGhostModeChange = useCallback((enabled: boolean) => {
+    setGhostModeEnabled(enabled);
+    ghostModeEnabledRef.current = enabled;
+    globalThis.__buddhabrotUpdate?.();
+  }, []);
+
+  const handleHeartbeatChange = useCallback((enabled: boolean) => {
+    setHeartbeatEnabled(enabled);
+    heartbeatEnabledRef.current = enabled;
+    globalThis.__buddhabrotUpdate?.();
+  }, []);
+
+  const handleHeartbeatSpeedChange = useCallback((speed: number) => {
+    setHeartbeatSpeed(speed);
+    heartbeatSpeedRef.current = speed;
+    globalThis.__buddhabrotUpdate?.();
+  }, []);
+
+  const handleHeartbeatIntensityChange = useCallback((intensity: number) => {
+    setHeartbeatIntensity(intensity);
+    heartbeatIntensityRef.current = intensity;
+    globalThis.__buddhabrotUpdate?.();
+  }, []);
+
+  const handleHeartbeatWaveformChange = useCallback(
+    (waveform: "sin" | "cos" | "tan" | "sqr") => {
+      setHeartbeatWaveform(waveform);
+      heartbeatWaveformRef.current = waveform;
+      globalThis.__buddhabrotUpdate?.();
+    },
+    [],
+  );
+
   const handleRotationChange = useCallback(
     (enabled: boolean) => {
       setRotationEnabled(enabled);
@@ -302,6 +352,11 @@ function App() {
         rotXZ={rotXZ}
         rotYW={rotYW}
         orbitEnabled={orbitEnabled}
+        ghostModeEnabled={ghostModeEnabled}
+        heartbeatEnabled={heartbeatEnabled}
+        heartbeatSpeed={heartbeatSpeed}
+        heartbeatIntensity={heartbeatIntensity}
+        heartbeatWaveform={heartbeatWaveform}
         onUpdateIter={updateIter}
         onUpdateRot={updateRot}
         onNebulaChange={handleNebulaChange}
@@ -311,6 +366,11 @@ function App() {
         onRotationChange={handleRotationChange}
         onAutoRotateChange={handleAutoRotateChange}
         onOrbitChange={handleOrbitChange}
+        onGhostModeChange={handleGhostModeChange}
+        onHeartbeatChange={handleHeartbeatChange}
+        onHeartbeatSpeedChange={handleHeartbeatSpeedChange}
+        onHeartbeatIntensityChange={handleHeartbeatIntensityChange}
+        onHeartbeatWaveformChange={handleHeartbeatWaveformChange}
       />
     </div>
   );

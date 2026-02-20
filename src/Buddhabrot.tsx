@@ -16,6 +16,10 @@ import {
   pow,
   max,
   sqrt,
+  sin,
+  cos,
+  tan,
+  sign,
 } from "three/tsl";
 import {
   WIDTH,
@@ -52,6 +56,11 @@ export default function Buddhabrot({
   nebulaAesthetic = false,
   colorCoreEnabled = false,
   coreColorHex = "#ffd700",
+  ghostModeEnabled = false,
+  heartbeatEnabled = false,
+  heartbeatSpeed = 2.0,
+  heartbeatIntensity = 0.8,
+  heartbeatWaveform = "sin",
   rotXZ = 0,
   rotYW = 0,
 }: BuddhabrotProps) {
@@ -170,6 +179,43 @@ export default function Buddhabrot({
     coreColorUniform.value.set(r, g, b, 1);
   }, [coreColorHex, coreColorUniform]);
 
+  // Ghost Mode uniform
+  const ghostModeUniform = useMemo(() => uniform(0), []);
+  useEffect(() => {
+    ghostModeUniform.value = ghostModeEnabled ? 1 : 0;
+  }, [ghostModeEnabled, ghostModeUniform]);
+
+  // Heartbeat uniform
+  const heartbeatUniform = useMemo(() => uniform(0), []);
+  useEffect(() => {
+    heartbeatUniform.value = heartbeatEnabled ? 1 : 0;
+  }, [heartbeatEnabled, heartbeatUniform]);
+
+  const heartbeatSpeedUniform = useMemo(() => uniform(2.0), []);
+  useEffect(() => {
+    heartbeatSpeedUniform.value = heartbeatSpeed;
+  }, [heartbeatSpeed, heartbeatSpeedUniform]);
+
+  const heartbeatIntensityUniform = useMemo(() => uniform(0.8), []);
+  useEffect(() => {
+    heartbeatIntensityUniform.value = heartbeatIntensity;
+  }, [heartbeatIntensity, heartbeatIntensityUniform]);
+
+  const heartbeatWaveformUniform = useMemo(() => uniform(0), []);
+  useEffect(() => {
+    heartbeatWaveformUniform.value =
+      heartbeatWaveform === "sin"
+        ? 0
+        : heartbeatWaveform === "cos"
+          ? 1
+          : heartbeatWaveform === "tan"
+            ? 2
+            : 3;
+  }, [heartbeatWaveform, heartbeatWaveformUniform]);
+
+  // Time uniform for animation
+  const timeUniform = useMemo(() => uniform(0), []);
+
   // Sync iteration props → uniforms
   const prevIters = useRef({
     r: redIter,
@@ -178,6 +224,8 @@ export default function Buddhabrot({
     max: maxIterations,
     nebula: nebulaEnabled,
     aesthetic: nebulaAesthetic,
+    ghost: ghostModeEnabled,
+    heartbeat: heartbeatEnabled,
   });
   useEffect(() => {
     let effectiveR: number, effectiveG: number, effectiveB: number;
@@ -207,7 +255,9 @@ export default function Buddhabrot({
       prevIters.current.b !== blueIter ||
       prevIters.current.max !== maxIterations ||
       prevIters.current.nebula !== nebulaEnabled ||
-      prevIters.current.aesthetic !== nebulaAesthetic
+      prevIters.current.aesthetic !== nebulaAesthetic ||
+      prevIters.current.ghost !== ghostModeEnabled ||
+      prevIters.current.heartbeat !== heartbeatEnabled
     ) {
       prevIters.current = {
         r: redIter,
@@ -216,6 +266,8 @@ export default function Buddhabrot({
         max: maxIterations,
         nebula: nebulaEnabled,
         aesthetic: nebulaAesthetic,
+        ghost: ghostModeEnabled,
+        heartbeat: heartbeatEnabled,
       };
       needsClearRef.current = true;
       frameCount.current = 0;
@@ -233,6 +285,8 @@ export default function Buddhabrot({
     blueIterUniform,
     maxAllIterUniform,
     frameCountUniform,
+    ghostModeEnabled,
+    heartbeatEnabled,
   ]);
 
   // Sync 4D rotation props → uniforms
@@ -344,10 +398,49 @@ export default function Buddhabrot({
       const countG = float(greenViewNode.element(index));
       const countB = float(blueViewNode.element(index));
 
-      const fc = max(frameCountUniform, 40);
+      const fc = float(0).toVar();
+      If(ghostModeUniform.greaterThan(0.5), () => {
+        fc.assign(max(frameCountUniform, 1));
+      }).Else(() => {
+        fc.assign(max(frameCountUniform, 40));
+      });
+
       const normR = countR.div(fc);
       const normG = countG.div(fc);
-      const normB = countB.div(fc);
+      const normB = float(0).toVar();
+
+      // Apply heartbeat (sine wave) modulation to the blue channel's normalized value
+      If(heartbeatUniform.greaterThan(0.5), () => {
+        const t = timeUniform.mul(heartbeatSpeedUniform);
+        const wave = float(0).toVar();
+
+        If(heartbeatWaveformUniform.lessThan(0.5), () => {
+          // 0: sin
+          wave.assign(sin(t));
+        })
+          .ElseIf(heartbeatWaveformUniform.lessThan(1.5), () => {
+            // 1: cos
+            wave.assign(cos(t));
+          })
+          .ElseIf(heartbeatWaveformUniform.lessThan(2.5), () => {
+            // 2: tan (clamped to avoid infinity)
+            wave.assign(tan(t).clamp(-1, 1));
+          })
+          .Else(() => {
+            // 3: sqr
+            wave.assign(sign(sin(t)));
+          });
+
+        // normalized wave: [0, 1]
+        const normalizedWave = wave.add(1.0).mul(0.5);
+        // Intensity scaling: 1.0 - (1.0 - normalizedWave) * heartbeatIntensity
+        const multiplier = float(1.0).sub(
+          heartbeatIntensityUniform.mul(float(1.0).sub(normalizedWave)),
+        );
+        normB.assign(countB.div(fc).mul(multiplier));
+      }).Else(() => {
+        normB.assign(countB.div(fc));
+      });
 
       const r = float(0).toVar();
       const g = float(0).toVar();
@@ -444,6 +537,12 @@ export default function Buddhabrot({
     nebulaAestheticUniform,
     colorCoreUniform,
     coreColorUniform,
+    ghostModeUniform,
+    heartbeatUniform,
+    heartbeatSpeedUniform,
+    heartbeatIntensityUniform,
+    heartbeatWaveformUniform,
+    timeUniform,
   ]);
 
   // --- Sync view uniforms and trigger clear ---
@@ -572,7 +671,9 @@ export default function Buddhabrot({
   // Time-budgeted rendering: target ~16ms frames, adapt dispatches
   const lastFrameTime = useRef(8);
 
-  useFrame(({ gl }) => {
+  useFrame(({ gl, clock }) => {
+    timeUniform.value = clock.elapsedTime;
+
     // Smooth zoom animation: lerp current view toward target
     const t = zoomTarget.current;
     const v = viewRef.current;
@@ -626,7 +727,11 @@ export default function Buddhabrot({
 
       const start = performance.now();
       const passTime = Math.max(lastFrameTime.current, 1);
-      const maxPasses = Math.max(1, Math.floor(COMPUTE_BUDGET_MS / passTime));
+      let maxPasses = Math.max(1, Math.floor(COMPUTE_BUDGET_MS / passTime));
+
+      if (ghostModeEnabled && frameCount.current < 60) {
+        maxPasses = 1;
+      }
 
       let passes = 0;
       for (let i = 0; i < maxPasses; i++) {
