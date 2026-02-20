@@ -243,6 +243,7 @@ export default function ControlPanel({
 
   return (
     <div
+      onClick={collapsed ? () => setCollapsed(false) : undefined}
       style={{
         position: "absolute",
         bottom: 24,
@@ -261,17 +262,22 @@ export default function ControlPanel({
         fontSize: 13,
         userSelect: "none",
         zIndex: 10,
+        cursor: collapsed ? "pointer" : undefined,
       }}
     >
       <button
-        onClick={() => setCollapsed((c) => !c)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setCollapsed((c) => !c);
+        }}
         aria-label={collapsed ? "Expand controls" : "Collapse controls"}
         style={{
           background: "none",
           border: "none",
           position: "absolute",
-          top: 8,
-          right: 8,
+          top: collapsed ? "50%" : 8,
+          right: collapsed ? 18 : 8,
+          transform: collapsed ? "translateY(-50%)" : "none",
           color: "rgba(255, 255, 255, 0.4)",
           cursor: "pointer",
           fontSize: 14,
