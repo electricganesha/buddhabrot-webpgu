@@ -34,7 +34,6 @@ import {
   MAX_ZOOM,
   DEFAULT_ZOOM,
   ZOOM_DAMPING,
-  COMPUTE_BUDGET_MS,
 } from "./constants";
 import type { BuddhabrotProps, ViewState, ZoomTarget } from "./types";
 import { getViewMetrics, mouseToFractal } from "./utils/view";
@@ -66,6 +65,7 @@ export default function Buddhabrot({
 }: BuddhabrotProps) {
   const { viewport } = useThree();
   const frameCount = useRef(0);
+  const totalPointsDispatched = useRef(0);
   const needsClearRef = useRef(true);
 
   // Initialize CURBy beacon on mount
@@ -216,6 +216,9 @@ export default function Buddhabrot({
   // Time uniform for animation
   const timeUniform = useMemo(() => uniform(0), []);
 
+  // Performance budgeting uniform: controls how many threads execute in the current pass
+  const activeBatchCountUniform = useMemo(() => uniform(BATCH_SIZE), []);
+
   // Sync iteration props → uniforms
   const prevIters = useRef({
     r: redIter,
@@ -271,6 +274,7 @@ export default function Buddhabrot({
       };
       needsClearRef.current = true;
       frameCount.current = 0;
+      totalPointsDispatched.current = 0;
       frameCountUniform.value = 1;
     }
   }, [
@@ -300,6 +304,7 @@ export default function Buddhabrot({
       prevRot.current = { xz: rotXZ, yw: rotYW };
       needsClearRef.current = true;
       frameCount.current = 0;
+      totalPointsDispatched.current = 0;
       frameCountUniform.value = 1;
     }
   }, [rotXZ, rotYW, rotCosXZ, rotSinXZ, rotCosYW, rotSinYW, frameCountUniform]);
@@ -307,8 +312,8 @@ export default function Buddhabrot({
   // View uniforms
   const viewCenterX = useMemo(() => uniform(DEFAULT_CENTER_X), []);
   const viewCenterY = useMemo(() => uniform(DEFAULT_CENTER_Y), []);
-  const viewHalfW = useMemo(() => uniform(DEFAULT_HALF_W), []);
-  const viewHalfH = useMemo(() => uniform(DEFAULT_HALF_H), []);
+  const viewHalfW = useMemo(() => uniform(DEFAULT_HALF_W / DEFAULT_ZOOM), []);
+  const viewHalfH = useMemo(() => uniform(DEFAULT_HALF_H / DEFAULT_ZOOM), []);
 
   // Importance sampling region
   const sampleMinCx = useMemo(() => uniform(-2.5), []);
@@ -328,38 +333,41 @@ export default function Buddhabrot({
   // --- Compute: single pass writes to R, G, B channels ---
   const computeNode = useMemo(() => {
     return Fn(() => {
-      const { r1, r2, r3 } = randomNumberGenerator(instanceIndex, seed);
+      // TSL compiler ignores JS returns, so we must explicitly wrap the work block
+      If(instanceIndex.lessThan(uint(activeBatchCountUniform)), () => {
+        const { r1, r2, r3 } = randomNumberGenerator(instanceIndex, seed);
 
-      const { cx, cy } = importanceSampler(
-        r1,
-        r2,
-        r3,
-        zoomUniform,
-        sampleMinCx,
-        sampleMaxCx,
-        sampleMinCy,
-        sampleMaxCy,
-      );
+        const { cx, cy } = importanceSampler(
+          r1,
+          r2,
+          r3,
+          zoomUniform,
+          sampleMinCx,
+          sampleMaxCx,
+          sampleMinCy,
+          sampleMaxCy,
+        );
 
-      quickEscapeSampler(
-        maxAllIterUniform,
-        cx,
-        cy,
-        redIterUniform,
-        greenIterUniform,
-        blueIterUniform,
-        rotCosXZ,
-        rotSinXZ,
-        rotCosYW,
-        rotSinYW,
-        viewCenterX,
-        viewCenterY,
-        viewHalfW,
-        viewHalfH,
-        redComputeNode,
-        greenComputeNode,
-        blueComputeNode,
-      );
+        quickEscapeSampler(
+          maxAllIterUniform,
+          cx,
+          cy,
+          redIterUniform,
+          greenIterUniform,
+          blueIterUniform,
+          rotCosXZ,
+          rotSinXZ,
+          rotCosYW,
+          rotSinYW,
+          viewCenterX,
+          viewCenterY,
+          viewHalfW,
+          viewHalfH,
+          redComputeNode,
+          greenComputeNode,
+          blueComputeNode,
+        );
+      });
     })().compute(BATCH_SIZE);
   }, [
     redComputeNode,
@@ -383,6 +391,7 @@ export default function Buddhabrot({
     rotSinXZ,
     rotCosYW,
     rotSinYW,
+    activeBatchCountUniform,
   ]);
 
   // --- Material: composite RGB from 3 channels ---
@@ -567,6 +576,7 @@ export default function Buddhabrot({
 
     needsClearRef.current = true;
     frameCount.current = 0;
+    totalPointsDispatched.current = 0;
     frameCountUniform.value = 1;
   }, [
     viewCenterX,
@@ -668,9 +678,6 @@ export default function Buddhabrot({
     };
   }, [gl, applyView, redIter, greenIter, blueIter, rotXZ, rotYW]);
 
-  // Time-budgeted rendering: target ~16ms frames, adapt dispatches
-  const lastFrameTime = useRef(8);
-
   useFrame(({ gl, clock }) => {
     timeUniform.value = clock.elapsedTime;
 
@@ -725,27 +732,40 @@ export default function Buddhabrot({
         needsClearRef.current = false;
       }
 
-      const start = performance.now();
-      const passTime = Math.max(lastFrameTime.current, 1);
-      let maxPasses = Math.max(1, Math.floor(COMPUTE_BUDGET_MS / passTime));
+      // Time-budgeted rendering: Deterministically calculate ops instead of CPU timings
+      const TARGET_OPS_PER_FRAME = 25_000_000;
+
+      // Calculate how many total threads (points) we can safely process per frame
+      // based on the maximum iteration count configured.
+      const currentMaxIters = maxAllIterUniform.value;
+      let desiredThreads = Math.max(
+        1,
+        Math.floor(TARGET_OPS_PER_FRAME / currentMaxIters),
+      );
 
       if (ghostModeEnabled && frameCount.current < 60) {
-        maxPasses = 1;
+        desiredThreads = Math.min(desiredThreads, BATCH_SIZE);
       }
 
-      let passes = 0;
-      for (let i = 0; i < maxPasses; i++) {
+      let threadsRemaining = desiredThreads;
+
+      while (threadsRemaining > 0) {
+        // Enqueue a full batch if we have enough budget left, or a partial batch
+        const batchThreads = Math.min(BATCH_SIZE, threadsRemaining);
+        activeBatchCountUniform.value = batchThreads;
+
         seed.value = nextSeed();
         gpu.compute(computeNode);
-        passes++;
+
+        threadsRemaining -= batchThreads;
+        totalPointsDispatched.current += batchThreads;
       }
 
-      const elapsed = performance.now() - start;
-      lastFrameTime.current =
-        lastFrameTime.current * 0.7 + (elapsed / Math.max(passes, 1)) * 0.3;
-
-      frameCount.current += passes;
-      frameCountUniform.value = frameCount.current;
+      frameCount.current++;
+      frameCountUniform.value = Math.max(
+        1,
+        totalPointsDispatched.current / BATCH_SIZE,
+      );
     }
   });
 
