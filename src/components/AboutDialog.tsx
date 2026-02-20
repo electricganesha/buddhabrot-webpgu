@@ -49,9 +49,43 @@ function Feature({
   );
 }
 
+/** Tab button for the dialog navigation */
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  readonly active: boolean;
+  readonly onClick: () => void;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: active ? "rgba(255, 255, 255, 0.12)" : "transparent",
+        border: "none",
+        color: active ? "#ffffff" : "rgba(255, 255, 255, 0.5)",
+        padding: "8px 16px",
+        borderRadius: "8px",
+        cursor: "pointer",
+        fontWeight: active ? 600 : 500,
+        fontSize: 13,
+        transition: "all 0.2s ease-in-out",
+        flex: 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+type TabId = "history" | "technical" | "credits";
+
 /** Floating info button + modal About dialog. */
 export default function AboutDialog() {
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabId>("history");
 
   const toggle = useCallback(() => setOpen((o) => !o), []);
 
@@ -124,11 +158,12 @@ export default function AboutDialog() {
               background: "rgba(75, 75, 81, 0.1)",
               border: "1px solid rgba(255, 255, 255, 0.1)",
               borderRadius: 16,
-              maxWidth: "85%",
+              maxWidth: 600,
               width: "100%",
+              height: "60vh",
               maxHeight: "85vh",
-              overflowY: "auto",
-              padding: "28px 32px",
+              display: "flex",
+              flexDirection: "column",
               color: "rgba(255, 255, 255, 0.82)",
               fontFamily: "system-ui, sans-serif",
               fontSize: 13,
@@ -136,157 +171,292 @@ export default function AboutDialog() {
               boxShadow: "0 24px 80px rgba(0, 0, 0, 0.6)",
             }}
           >
-            {/* Header */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 8,
-              }}
-            >
-              <h2
+            {/* Header Area (Fixed) */}
+            <div style={{ padding: "28px 32px 0" }}>
+              <div
                 style={{
-                  margin: 0,
-                  fontSize: 20,
-                  fontWeight: 700,
-                  color: "#fff",
-                  letterSpacing: 0.5,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 16,
                 }}
               >
-                Buddhabrot Explorer
-              </h2>
-              <button
-                onClick={toggle}
-                aria-label="Close"
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 20,
+                    fontWeight: 700,
+                    color: "#fff",
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  Buddhabrot Explorer
+                </h2>
+                <button
+                  onClick={toggle}
+                  aria-label="Close"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "rgba(255, 255, 255, 0.4)",
+                    fontSize: 22,
+                    cursor: "pointer",
+                    padding: "0 4px",
+                    lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Tabs */}
+              <div
                 style={{
-                  background: "none",
-                  border: "none",
-                  color: "rgba(255, 255, 255, 0.4)",
-                  fontSize: 22,
-                  cursor: "pointer",
-                  padding: "0 4px",
-                  lineHeight: 1,
+                  display: "flex",
+                  gap: 8,
+                  background: "rgba(0, 0, 0, 0.2)",
+                  padding: 6,
+                  borderRadius: 12,
+                  marginBottom: 16,
                 }}
               >
-                ✕
-              </button>
+                <TabButton
+                  active={activeTab === "history"}
+                  onClick={() => setActiveTab("history")}
+                >
+                  History
+                </TabButton>
+                <TabButton
+                  active={activeTab === "technical"}
+                  onClick={() => setActiveTab("technical")}
+                >
+                  Technical
+                </TabButton>
+                <TabButton
+                  active={activeTab === "credits"}
+                  onClick={() => setActiveTab("credits")}
+                >
+                  Credits
+                </TabButton>
+              </div>
             </div>
 
-            {/* Body */}
-            <Heading>A Brief History</Heading>
-            <p>
-              The{" "}
-              <a href="https://en.wikipedia.org/wiki/Buddhabrot">Buddhabrot</a>{" "}
-              was first discovered and described by researcher{" "}
-              <strong>Melinda Green</strong> in 1993. While exploring the
-              Mandelbrot set, she realized that instead of just looking at which
-              points &ldquo;escape,&rdquo; one could track the entire path
-              (orbit) a point takes before it leaves. When these millions of
-              paths are plotted together, a ghostly, meditative figure emerges
-              that strikingly resembles a seated Buddha&mdash;hence the name.
-            </p>
-
-            <Heading>What You&rsquo;re Seeing</Heading>
-            <p>
-              While a standard Mandelbrot map is a{" "}
-              <em>&ldquo;result,&rdquo;</em> the Buddhabrot is a{" "}
-              <em>&ldquo;journey.&rdquo;</em>
-            </p>
-            <ul style={{ paddingLeft: 20, margin: "8px 0" }}>
-              <li style={{ marginBottom: 6 }}>
-                <strong>The Mandelbrot:</strong> Asks &ldquo;Did this point
-                escape?&rdquo; and colors the pixel.
-              </li>
-              <li>
-                <strong>The Buddhabrot:</strong> Asks &ldquo;Where did this
-                point go on its way out?&rdquo; and leaves a trail of light at
-                every coordinate it visited.
-              </li>
-            </ul>
-
-            <Heading>Features of This Explorer</Heading>
-            <ul style={{ paddingLeft: 20, margin: "8px 0", listStyle: "none" }}>
-              <Feature title="Quantum Entropy (CURBy)">
-                To render this &ldquo;cloud of paths,&rdquo; we need millions of
-                random numbers. This app uses the Colorado University Randomness
-                Beacon (CURBy), which provides verifiable randomness generated
-                via quantum entanglement. Your fractal isn&rsquo;t just a
-                simulation; it&rsquo;s seeded by the fundamental
-                unpredictability of the universe.
-              </Feature>
-
-              <Feature title="WebGPU &amp; TSL Power">
-                This app utilizes WebGPU, the next generation of graphics on the
-                web, and the Three Shading Language (TSL). This allows us to run
-                millions of &ldquo;flight simulations&rdquo; per second directly
-                on your GPU, providing a real-time, fluid experience.
-              </Feature>
-
-              <Feature title="The Nebulabrot (RGB Mode)">
-                Just as astronomers use different filters to see gases in space,
-                the Nebulabrot technique assigns different colors to different
-                &ldquo;energy levels.&rdquo; By rendering three layers at low,
-                medium, and high iterations and mapping them to Red, Green, and
-                Blue, we reveal the complex internal anatomy of the fractal.
-              </Feature>
-
-              <Feature title="The Juddhabrot (4D Rotation)">
-                The math behind the Buddhabrot actually exists in four
-                dimensions. The Juddhabrot feature (named after researcher{" "}
-                <strong>Lori Gardi</strong>) allows you to &ldquo;rotate&rdquo;
-                the 4D object through our 3D perspective, revealing hidden
-                symmetries and &ldquo;projections&rdquo; that are invisible in a
-                flat 2D view.
-              </Feature>
-
-              <Feature title="Infinite Depth">
-                Use the pan and zoom controls to dive into the recursive
-                filaments. Adjust the Iteration Slider to trade broad, bright
-                shapes for fine, ethereal details.
-              </Feature>
-            </ul>
-
-            <p
+            {/* Scrollable Content Area */}
+            <div
               style={{
-                marginTop: 16,
-                padding: "10px 14px",
-                background: "rgba(255, 200, 100, 0.08)",
-                borderLeft: "3px solid rgba(255, 200, 100, 0.3)",
-                fontSize: 12,
-                lineHeight: 1.5,
-                color: "rgba(255, 255, 255, 0.65)",
+                flex: 1,
+                overflowY: "auto",
+                padding: "0 32px 28px",
               }}
             >
-              <strong style={{ color: "rgba(255, 220, 150, 0.9)" }}>
-                Note on Zoom Limits:
-              </strong>{" "}
-              While fractals are mathematically infinite, this renderer uses
-              32-bit floating-point precision (standard for real-time GPU
-              graphics). Beyond approximately 5,000× magnification, numerical
-              precision degrades and orbit point density becomes too sparse,
-              causing the image to fade to black. This is a fundamental
-              constraint of real-time GPU rendering, not a limitation of the
-              fractal itself.
-            </p>
+              {activeTab === "history" && (
+                <div style={{ animation: "fadeIn 0.3s ease-out" }}>
+                  <Heading>A Brief History</Heading>
+                  <p>
+                    The{" "}
+                    <a
+                      href="https://en.wikipedia.org/wiki/Buddhabrot"
+                      style={{ color: "#c4b5fd", textDecoration: "none" }}
+                    >
+                      Buddhabrot
+                    </a>{" "}
+                    was first discovered and described by researcher{" "}
+                    <strong>Melinda Green</strong> in 1993. While exploring the
+                    Mandelbrot set, she realized that instead of just looking at
+                    which points &ldquo;escape,&rdquo; one could track the
+                    entire path (orbit) a point takes before it leaves. When
+                    these millions of paths are plotted together, a ghostly,
+                    meditative figure emerges that strikingly resembles a seated
+                    Buddha&mdash;hence the name.
+                  </p>
 
-            {/* Quote */}
-            <blockquote
-              style={{
-                margin: "20px 0 4px",
-                padding: "12px 16px",
-                borderLeft: "3px solid rgba(196, 181, 253, 0.4)",
-                fontStyle: "italic",
-                color: "rgba(255, 255, 255, 0.55)",
-                fontSize: 12,
-              }}
-            >
-              &ldquo;The Buddhabrot is the shadow of the Mandelbrot set, a
-              representation of the chaotic paths that lead to infinity.&rdquo;
-            </blockquote>
+                  <Heading>What You&rsquo;re Seeing</Heading>
+                  <p>
+                    While a standard Mandelbrot map is a{" "}
+                    <em>&ldquo;result,&rdquo;</em> the Buddhabrot is a{" "}
+                    <em>&ldquo;journey.&rdquo;</em>
+                  </p>
+                  <ul style={{ paddingLeft: 20, margin: "8px 0" }}>
+                    <li style={{ marginBottom: 6 }}>
+                      <strong>The Mandelbrot:</strong> Asks &ldquo;Did this
+                      point escape?&rdquo; and colors the pixel.
+                    </li>
+                    <li>
+                      <strong>The Buddhabrot:</strong> Asks &ldquo;Where did
+                      this point go on its way out?&rdquo; and leaves a trail of
+                      light at every coordinate it visited.
+                    </li>
+                  </ul>
+
+                  <blockquote
+                    style={{
+                      margin: "24px 0 4px",
+                      padding: "12px 16px",
+                      borderLeft: "3px solid rgba(196, 181, 253, 0.4)",
+                      background: "rgba(196, 181, 253, 0.05)",
+                      borderRadius: "0 8px 8px 0",
+                      fontStyle: "italic",
+                      color: "rgba(255, 255, 255, 0.65)",
+                      fontSize: 13,
+                    }}
+                  >
+                    &ldquo;The Buddhabrot is the shadow of the Mandelbrot set, a
+                    representation of the chaotic paths that lead to
+                    infinity.&rdquo;
+                  </blockquote>
+                </div>
+              )}
+
+              {activeTab === "technical" && (
+                <div style={{ animation: "fadeIn 0.3s ease-out" }}>
+                  <Heading>Renderer Technologies</Heading>
+                  <ul
+                    style={{
+                      paddingLeft: 0,
+                      margin: "8px 0",
+                      listStyle: "none",
+                    }}
+                  >
+                    <Feature title="WebGPU & TSL Power">
+                      This app utilizes WebGPU, the next generation of graphics
+                      on the web, and the Three Shading Language (TSL). This
+                      allows us to run millions of &ldquo;flight
+                      simulations&rdquo; per second directly on your GPU,
+                      providing a real-time, fluid experience.
+                    </Feature>
+
+                    <Feature title="Quantum Entropy (CURBy)">
+                      To render this &ldquo;cloud of paths,&rdquo; we need
+                      millions of random numbers. This app can use the Colorado
+                      University Randomness Beacon (CURBy), which provides
+                      verifiable randomness generated via quantum entanglement.
+                    </Feature>
+                  </ul>
+
+                  <Heading>Exploration Modes</Heading>
+                  <ul
+                    style={{
+                      paddingLeft: 0,
+                      margin: "8px 0",
+                      listStyle: "none",
+                    }}
+                  >
+                    <Feature title="The Nebulabrot (RGB Mode)">
+                      Just as astronomers use different filters to see gases in
+                      space, the Nebulabrot technique assigns different colors
+                      to different &ldquo;energy levels.&rdquo; By rendering
+                      three layers at low, medium, and high iterations and
+                      mapping them to Red, Green, and Blue, we reveal the
+                      complex internal anatomy of the fractal.
+                    </Feature>
+
+                    <Feature title="The Juddhabrot (4D Rotation)">
+                      The math behind the Buddhabrot actually exists in four
+                      dimensions. The Juddhabrot feature allows you to
+                      &ldquo;rotate&rdquo; the 4D object through our 3D
+                      perspective, revealing hidden symmetries and
+                      &ldquo;projections&rdquo; that are invisible in a flat 2D
+                      view.
+                    </Feature>
+
+                    <Feature title="Infinite Depth">
+                      Use the pan and zoom controls to dive into the recursive
+                      filaments. Adjust the Iteration Slider to trade broad,
+                      bright shapes for fine, ethereal details.
+                    </Feature>
+                  </ul>
+
+                  <p
+                    style={{
+                      marginTop: 20,
+                      padding: "12px 16px",
+                      background: "rgba(255, 200, 100, 0.08)",
+                      borderLeft: "3px solid rgba(255, 200, 100, 0.4)",
+                      borderRadius: "0 8px 8px 0",
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      color: "rgba(255, 255, 255, 0.7)",
+                    }}
+                  >
+                    <strong style={{ color: "rgba(255, 220, 150, 0.9)" }}>
+                      Note on Zoom Limits:
+                    </strong>{" "}
+                    While fractals are mathematically infinite, this renderer
+                    uses 32-bit floating-point precision (standard for real-time
+                    GPU graphics). Beyond approximately 5,000× magnification,
+                    numerical precision degrades and orbit point density becomes
+                    too sparse, causing the image to fade to black.
+                  </p>
+                </div>
+              )}
+
+              {activeTab === "credits" && (
+                <div style={{ animation: "fadeIn 0.3s ease-out" }}>
+                  <Heading>Inspiration & Discovery</Heading>
+                  <ul
+                    style={{
+                      paddingLeft: 20,
+                      margin: "8px 0",
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    <li>
+                      <strong>Melinda Green</strong>: First discovered and
+                      described the Buddhabrot rendering technique in 1993.
+                    </li>
+                    <li>
+                      <strong>Lori Gardi</strong>: Developed the
+                      &ldquo;Juddhabrot&rdquo; concept, exploring the 4D nature
+                      of these plots.
+                    </li>
+                  </ul>
+
+                  <Heading>Powered By</Heading>
+                  <ul
+                    style={{
+                      paddingLeft: 20,
+                      margin: "8px 0",
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    <li>
+                      <strong>Three.js & WebGPU</strong>: The foundational 3D
+                      library and modern graphics API.
+                    </li>
+                    <li>
+                      <strong>CURBy (CU Randomness Beacon)</strong>: For true
+                      quantum entropy.
+                    </li>
+                    <li>
+                      <strong>React & TypeScript</strong>: Driving the UI
+                      interaction.
+                    </li>
+                  </ul>
+
+                  <div
+                    style={{
+                      marginTop: 32,
+                      paddingTop: 16,
+                      borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+                      textAlign: "center",
+                      color: "rgba(255, 255, 255, 0.4)",
+                      fontSize: 12,
+                    }}
+                  >
+                    Buddhabrot Explorer &copy; {new Date().getFullYear()}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </>
   );
 }

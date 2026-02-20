@@ -9,12 +9,9 @@ import {
   uniform,
   Fn,
   uint,
-  Loop,
-  atomicAdd,
   If,
   uv,
   int,
-  Break,
   log,
   pow,
   max,
@@ -24,8 +21,6 @@ import {
   WIDTH,
   HEIGHT,
   TOTAL_PIXELS,
-  COMPILE_MAX_ITERATIONS,
-  MIN_ITERATIONS,
   BATCH_SIZE,
   DEFAULT_CENTER_X,
   DEFAULT_CENTER_Y,
@@ -41,6 +36,11 @@ import { getViewMetrics, mouseToFractal } from "./utils/view";
 import { computeOrbit } from "./utils/orbit";
 import { intStorage } from "./utils/tslCompat";
 import type { WebGPURendererLike } from "./utils/tslCompat";
+import {
+  importanceSampler,
+  quickEscapeSampler,
+  randomNumberGenerator,
+} from "./utils/buddhabrot";
 
 export default function Buddhabrot({
   redIter = 50,
@@ -252,164 +252,38 @@ export default function Buddhabrot({
   // --- Compute: single pass writes to R, G, B channels ---
   const computeNode = useMemo(() => {
     return Fn(() => {
-      // Xorshift RNG seeded by CURBy randomness beacon (true randomness)
-      const h1 = instanceIndex.add(uint(seed.mul(1_000_000))).toVar();
-      h1.assign(h1.bitXor(h1.shiftLeft(uint(13))));
-      h1.assign(h1.bitXor(h1.shiftRight(uint(17))));
-      h1.assign(h1.bitXor(h1.shiftLeft(uint(5))));
-      h1.assign(h1.mul(uint(1597334677)));
-      h1.assign(h1.bitXor(h1.shiftLeft(uint(13))));
-      h1.assign(h1.bitXor(h1.shiftRight(uint(17))));
-      h1.assign(h1.bitXor(h1.shiftLeft(uint(5))));
-      const r1 = float(h1.bitAnd(uint(0x7fffffff))).div(2_147_483_648);
+      const { r1, r2, r3 } = randomNumberGenerator(instanceIndex, seed);
 
-      const h2 = instanceIndex
-        .add(uint(seed.mul(2_000_000)))
-        .add(uint(7919))
-        .toVar();
-      h2.assign(h2.bitXor(h2.shiftLeft(uint(13))));
-      h2.assign(h2.bitXor(h2.shiftRight(uint(17))));
-      h2.assign(h2.bitXor(h2.shiftLeft(uint(5))));
-      h2.assign(h2.mul(uint(2654435761)));
-      h2.assign(h2.bitXor(h2.shiftLeft(uint(13))));
-      h2.assign(h2.bitXor(h2.shiftRight(uint(17))));
-      h2.assign(h2.bitXor(h2.shiftLeft(uint(5))));
-      const r2 = float(h2.bitAnd(uint(0x7fffffff))).div(2_147_483_648);
+      const { cx, cy } = importanceSampler(
+        r1,
+        r2,
+        r3,
+        zoomUniform,
+        sampleMinCx,
+        sampleMaxCx,
+        sampleMinCy,
+        sampleMaxCy,
+      );
 
-      const h3 = instanceIndex
-        .add(uint(seed.mul(3_000_000)))
-        .add(uint(104729))
-        .toVar();
-      h3.assign(h3.bitXor(h3.shiftLeft(uint(13))));
-      h3.assign(h3.bitXor(h3.shiftRight(uint(17))));
-      h3.assign(h3.bitXor(h3.shiftLeft(uint(5))));
-      h3.assign(h3.mul(uint(2246822519)));
-      const r3 = float(h3.bitAnd(uint(0x7fffffff))).div(2_147_483_648);
-
-      // Importance sampling
-      const importanceFraction = float(1)
-        .sub(float(1).div(zoomUniform))
-        .clamp(0, 0.85);
-
-      const cx = float(0).toVar();
-      const cy = float(0).toVar();
-
-      If(r3.lessThan(importanceFraction), () => {
-        cx.assign(r1.mul(sampleMaxCx.sub(sampleMinCx)).add(sampleMinCx));
-        cy.assign(r2.mul(sampleMaxCy.sub(sampleMinCy)).add(sampleMinCy));
-      }).Else(() => {
-        cx.assign(r1.mul(3.5).sub(2.5));
-        cy.assign(r2.mul(3).sub(1.5));
-      });
-
-      // Pass 1: Quick escape check (first MIN_ITERATIONS)
-      const zx = float(0).toVar();
-      const zy = float(0).toVar();
-      const quickEscape = int(0).toVar();
-
-      Loop(MIN_ITERATIONS, () => {
-        const newx = zx.mul(zx).sub(zy.mul(zy)).add(cx).toVar();
-        const newy = zx.mul(zy).mul(2).add(cy).toVar();
-        zx.assign(newx);
-        zy.assign(newy);
-        If(zx.mul(zx).add(zy.mul(zy)).greaterThan(4), () => {
-          quickEscape.assign(1);
-          Break();
-        });
-      });
-
-      // Pass 1 continued: iterate to max(R,G,B), track escape iteration
-      If(quickEscape.equal(0), () => {
-        const escaped = int(0).toVar();
-        const escapeIter = float(MIN_ITERATIONS).toVar();
-
-        Loop(COMPILE_MAX_ITERATIONS - MIN_ITERATIONS, () => {
-          If(escapeIter.greaterThanEqual(maxAllIterUniform), () => {
-            Break();
-          });
-          escapeIter.addAssign(1);
-
-          const newx = zx.mul(zx).sub(zy.mul(zy)).add(cx).toVar();
-          const newy = zx.mul(zy).mul(2).add(cy).toVar();
-          zx.assign(newx);
-          zy.assign(newy);
-
-          If(zx.mul(zx).add(zy.mul(zy)).greaterThan(4), () => {
-            escaped.assign(1);
-            Break();
-          });
-        });
-
-        // Pass 2: Re-trace and write to appropriate channel buffers
-        If(escaped.equal(1), () => {
-          // Determine which channels get this orbit
-          const writeR = int(0).toVar();
-          const writeG = int(0).toVar();
-          const writeB = int(0).toVar();
-          If(escapeIter.lessThanEqual(redIterUniform), () => {
-            writeR.assign(1);
-          });
-          If(escapeIter.lessThanEqual(greenIterUniform), () => {
-            writeG.assign(1);
-          });
-          If(escapeIter.lessThanEqual(blueIterUniform), () => {
-            writeB.assign(1);
-          });
-
-          zx.assign(0);
-          zy.assign(0);
-          const retraceIter = float(0).toVar();
-
-          Loop(COMPILE_MAX_ITERATIONS, () => {
-            If(retraceIter.greaterThanEqual(escapeIter), () => {
-              Break();
-            });
-            retraceIter.addAssign(1);
-
-            const newx = zx.mul(zx).sub(zy.mul(zy)).add(cx).toVar();
-            const newy = zx.mul(zy).mul(2).add(cy).toVar();
-            zx.assign(newx);
-            zy.assign(newy);
-
-            // Apply 4D rotation (Juddhabrot) before projecting
-            const rzx = zx.mul(rotCosXZ).sub(cx.mul(rotSinXZ));
-            const rzy = zy.mul(rotCosYW).sub(cy.mul(rotSinYW));
-
-            // Map rotated orbit point to pixel (rotated: head up)
-            const fracX = rzy;
-            const fracY = rzx.negate();
-            const ux = fracX.sub(viewCenterX).div(viewHalfW.mul(2)).add(0.5);
-            const uy = fracY.sub(viewCenterY).div(viewHalfH.mul(2)).add(0.5);
-
-            If(
-              ux
-                .greaterThanEqual(0)
-                .and(ux.lessThan(1))
-                .and(uy.greaterThanEqual(0))
-                .and(uy.lessThan(1)),
-              () => {
-                const px = uint(ux.mul(float(WIDTH)));
-                const py = uint(uy.mul(float(HEIGHT)));
-                const idx = py.mul(uint(WIDTH)).add(px);
-
-                If(writeR.equal(1), () => {
-                  atomicAdd(redComputeNode.element(idx), int(1));
-                });
-                If(writeG.equal(1), () => {
-                  atomicAdd(greenComputeNode.element(idx), int(1));
-                });
-                If(writeB.equal(1), () => {
-                  atomicAdd(blueComputeNode.element(idx), int(1));
-                });
-              },
-            );
-
-            If(zx.mul(zx).add(zy.mul(zy)).greaterThan(4), () => {
-              Break();
-            });
-          });
-        });
-      });
+      quickEscapeSampler(
+        maxAllIterUniform,
+        cx,
+        cy,
+        redIterUniform,
+        greenIterUniform,
+        blueIterUniform,
+        rotCosXZ,
+        rotSinXZ,
+        rotCosYW,
+        rotSinYW,
+        viewCenterX,
+        viewCenterY,
+        viewHalfW,
+        viewHalfH,
+        redComputeNode,
+        greenComputeNode,
+        blueComputeNode,
+      );
     })().compute(BATCH_SIZE);
   }, [
     redComputeNode,
