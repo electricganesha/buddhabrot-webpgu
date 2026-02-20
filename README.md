@@ -4,6 +4,8 @@ A real-time, interactive WebGPU explorer for the [Buddhabrot](https://superlimin
 
 While the standard Mandelbrot set maps the "destination" of points on a complex plane (whether they remain bounded or escape to infinity), the Buddhabrot maps the **journey**. It logs the exact flight paths of all escaping points. When overlaid, these billions of paths create a glowing, meditative figure resembling a seated Buddha.
 
+<img width="1458" height="876" alt="Screenshot 2026-02-20 at 11 58 44" src="https://github.com/user-attachments/assets/44cbf16a-f2de-4548-b692-fef9bf131dc4" />
+
 ## Key Features
 
 - **Nebulabrot (RGB Mode):** Maps different iteration counts to Red, Green, and Blue channels. This reveals the intricate "energy layers" of the fractal.
