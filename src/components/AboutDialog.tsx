@@ -80,7 +80,7 @@ function TabButton({
   );
 }
 
-type TabId = "history" | "technical" | "credits";
+type TabId = "history" | "technical" | "maths" | "mystical" | "credits";
 
 /** Floating info button + modal About dialog. */
 export default function AboutDialog() {
@@ -153,14 +153,14 @@ export default function AboutDialog() {
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label="About Buddhabrot Explorer"
+            aria-label="About Buddhabrot WebGPU Explorer"
             style={{
               background: "rgba(75, 75, 81, 0.1)",
               border: "1px solid rgba(255, 255, 255, 0.1)",
               borderRadius: 16,
               maxWidth: 600,
               width: "100%",
-              height: "60vh",
+              height: "75vh",
               maxHeight: "85vh",
               display: "flex",
               flexDirection: "column",
@@ -190,7 +190,7 @@ export default function AboutDialog() {
                     letterSpacing: 0.5,
                   }}
                 >
-                  Buddhabrot Explorer
+                  Buddhabrot WebGPU Explorer
                 </h2>
                 <button
                   onClick={toggle}
@@ -233,6 +233,18 @@ export default function AboutDialog() {
                   Technical
                 </TabButton>
                 <TabButton
+                  active={activeTab === "maths"}
+                  onClick={() => setActiveTab("maths")}
+                >
+                  Maths
+                </TabButton>
+                <TabButton
+                  active={activeTab === "mystical"}
+                  onClick={() => setActiveTab("mystical")}
+                >
+                  Mystical
+                </TabButton>
+                <TabButton
                   active={activeTab === "credits"}
                   onClick={() => setActiveTab("credits")}
                 >
@@ -255,19 +267,21 @@ export default function AboutDialog() {
                   <p>
                     The{" "}
                     <a
-                      href="https://en.wikipedia.org/wiki/Buddhabrot"
+                      href="https://superliminal.com/fractals/bbrot/"
+                      target="_blank"
+                      rel="noopener noreferrer"
                       style={{ color: "#c4b5fd", textDecoration: "none" }}
                     >
                       Buddhabrot
                     </a>{" "}
                     was first discovered and described by researcher{" "}
-                    <strong>Melinda Green</strong> in 1993. While exploring the
-                    Mandelbrot set, she realized that instead of just looking at
-                    which points &ldquo;escape,&rdquo; one could track the
-                    entire path (orbit) a point takes before it leaves. When
-                    these millions of paths are plotted together, a ghostly,
-                    meditative figure emerges that strikingly resembles a seated
-                    Buddha&mdash;hence the name.
+                    <strong>Melinda Green&nbsp;</strong> in 1993. While
+                    exploring the Mandelbrot set, she realized that instead of
+                    just looking at which points &ldquo;escape,&rdquo; one could
+                    track the entire path (orbit) a point takes before it
+                    leaves. When these millions of paths are plotted together, a
+                    ghostly, meditative figure emerges that strikingly resembles
+                    a seated Buddha&mdash;hence the name.
                   </p>
 
                   <Heading>What You&rsquo;re Seeing</Heading>
@@ -364,6 +378,15 @@ export default function AboutDialog() {
                       filaments. Adjust the Iteration Slider to trade broad,
                       bright shapes for fine, ethereal details.
                     </Feature>
+
+                    <Feature title="Real-time Orbit Tracking">
+                      Hover over any coordinate while the Orbit Tracking toggle
+                      is active to view the exact escape trajectory of that
+                      mathematical point in real-time. This dynamic calculation
+                      integrates alongside WebGPU zoom recomputations to show
+                      the 2D plane projection of the mathematical orbit
+                      interacting fluidly with the fractal rendering.
+                    </Feature>
                   </ul>
 
                   <p
@@ -387,6 +410,238 @@ export default function AboutDialog() {
                     numerical precision degrades and orbit point density becomes
                     too sparse, causing the image to fade to black.
                   </p>
+                </div>
+              )}
+
+              {activeTab === "maths" && (
+                <div style={{ animation: "fadeIn 0.3s ease-out" }}>
+                  <Heading>The Mathematics of the Buddhabrot</Heading>
+                  <p>
+                    The Buddhabrot is rendered using the same core equation as
+                    the Mandelbrot set: <br />
+                    <strong style={{ fontFamily: "monospace", fontSize: 14 }}>
+                      Z<sub>n+1</sub> = Z<sub>n</sub>
+                      <sup>2</sup> + C
+                    </strong>
+                  </p>
+
+                  <Heading>1. The Constant (C) and the Variable (Z)</Heading>
+                  <p>
+                    <strong>C</strong> is a complex number (representing a
+                    randomly chosen point on the 2D plane).
+                    <br />
+                    <strong>Z</strong> is a complex number that always starts at
+                    zero (0 + 0i).
+                  </p>
+                  <p>
+                    In each iteration <em>n</em>, we square the current value of
+                    Z and add our starting point C to get the new Z.
+                  </p>
+
+                  <Heading>2. Escape or Bound</Heading>
+                  <p>
+                    We repeat this equation hundreds or thousands of times. Two
+                    things can happen to Z:
+                  </p>
+                  <ul
+                    style={{
+                      paddingLeft: 0,
+                      margin: "8px 0",
+                      listStyle: "none",
+                    }}
+                  >
+                    <Feature title="It Remains Bounded">
+                      The value of Z fluctuates but never gets too large. It is
+                      locked inside the "Mandelbrot lake." We discard these
+                      points completely for the Buddhabrot.
+                    </Feature>
+                    <Feature title="It Escapes to Infinity">
+                      The value of Z eventually grows larger than 2 (its
+                      distance from the origin). As soon as this happens, we
+                      know this point C is a "diverging" point. This is the
+                      crucial group for the Buddhabrot.
+                    </Feature>
+                  </ul>
+
+                  <Heading>3. Tracing the Flight Path</Heading>
+                  <p>
+                    In a standard Mandelbrot, escaping points are colored based
+                    on <em>how quickly</em> they escaped. But for the
+                    Buddhabrot, we care about the <em>exact path</em> they took
+                    to get there.
+                  </p>
+                  <p>
+                    Once we know point C escapes, we reset Z back to zero and
+                    run the exact same equation again. But this time, at every
+                    single step, we plot the current coordinate of Z onto a 2D
+                    grid and increment its brightness by 1.
+                  </p>
+                  <p>
+                    By doing this millions of times from millions of random C
+                    starting points, the grid starts to glow naturally in areas
+                    where these orbital paths cross frequently, building up the
+                    ghostly density map known as the Buddhabrot.
+                  </p>
+                </div>
+              )}
+
+              {activeTab === "mystical" && (
+                <div style={{ animation: "fadeIn 0.3s ease-out" }}>
+                  <Heading>Digital Mysticism</Heading>
+                  <p>
+                    The &ldquo;mystical&rdquo; or &ldquo;esoteric&rdquo; side of
+                    the Buddhabrot stems from the striking coincidence that a
+                    purely mathematical formula, when visualized through the
+                    lens of movement and trajectory, produces a figure so
+                    clearly resembling a traditional Buddhist icon.
+                  </p>
+                  <p>
+                    Because the Buddhabrot reveals the &ldquo;ghost&rdquo; or
+                    the &ldquo;hidden&rdquo; behavior of the Mandelbrot set, it
+                    has become a favorite subject for those exploring the
+                    intersection of sacred geometry, digital mysticism, and
+                    non-dual philosophy.
+                  </p>
+
+                  <Heading>
+                    1. The &ldquo;Ghost&rdquo; in the Mandelbrot
+                  </Heading>
+                  <p>
+                    In fractal geometry, the Mandelbrot set is often seen as a
+                    map of &ldquo;fate&rdquo;&mdash;either a point is in the set
+                    (order) or it escapes (chaos). The Buddhabrot, however,
+                    visualizes the transient state.
+                  </p>
+                  <ul
+                    style={{
+                      paddingLeft: 0,
+                      margin: "8px 0",
+                      listStyle: "none",
+                    }}
+                  >
+                    <Feature title="The Shadow of Escape">
+                      It is often described as the &ldquo;shadow&rdquo; or the
+                      &ldquo;soul&rdquo; of the Mandelbrot set. By plotting only
+                      the points that escape, it shows that even in the process
+                      of leaving &ldquo;order,&rdquo; there is a profound,
+                      structured beauty.
+                    </Feature>
+                    <Feature title="The Hidden Symmetry">
+                      Esoterically, this represents the idea that what we
+                      perceive as &ldquo;void&rdquo; or &ldquo;noise&rdquo; (the
+                      space outside the Mandelbrot set) actually contains an
+                      intricate, divine structure that is simply invisible to
+                      standard observation.
+                    </Feature>
+                  </ul>
+
+                  <Heading>2. Digital Sacred Geometry</Heading>
+                  <p>
+                    The image&rsquo;s resemblance to a seated Buddha is not just
+                    a pareidolia effect; the mathematical symmetry reflects
+                    ancient spiritual symbols:
+                  </p>
+                  <ul
+                    style={{
+                      paddingLeft: 0,
+                      margin: "8px 0",
+                      listStyle: "none",
+                    }}
+                  >
+                    <Feature title="The Dharmachakra">
+                      The &ldquo;crowned&rdquo; head and the multi-layered
+                      circles often resemble the Wheel of Dharma or Mandalas
+                      used in meditation.
+                    </Feature>
+                    <Feature title="The Lotus Position">
+                      The density distribution naturally forms a central core
+                      with &ldquo;petals&rdquo; or &ldquo;shoulders&rdquo;
+                      extending outward, mirroring the posture of a being in
+                      deep samadhi (meditative absorption).
+                    </Feature>
+                  </ul>
+
+                  <Heading>
+                    3. Philosophical Parallel: Process vs. Result
+                  </Heading>
+                  <p>
+                    The distinction between the Mandelbrot and the Buddhabrot
+                    mirrors a core philosophical debate:
+                  </p>
+                  <ul
+                    style={{
+                      paddingLeft: 0,
+                      margin: "8px 0",
+                      listStyle: "none",
+                    }}
+                  >
+                    <Feature title="Result-Oriented (Mandelbrot)">
+                      You look at the final destination (Did it stay or go?).
+                    </Feature>
+                    <Feature title="Process-Oriented (Buddhabrot)">
+                      You look at the journey. Every step of the path is
+                      recorded and valued. This is often compared to the
+                      Buddhist concept of Karma or Path, where the destination
+                      is less important than the quality and nature of the
+                      movement through space and time.
+                    </Feature>
+                  </ul>
+
+                  <Heading>
+                    4. The &ldquo;Juddhabrot&rdquo; and 4D Unity
+                  </Heading>
+                  <p>
+                    The term Juddhabrot (named after Lori Gardi) highlights the
+                    4D nature of the set. Esoterically, this is seen as a
+                    metaphor for Higher Dimensions of Consciousness.
+                  </p>
+                  <ul
+                    style={{
+                      paddingLeft: 0,
+                      margin: "8px 0",
+                      listStyle: "none",
+                    }}
+                  >
+                    <Feature title="Projection of Truth">
+                      Just as a 3D object casts a 2D shadow, the Buddhabrot is
+                      seen as a 2D &ldquo;shadow&rdquo; of a much
+                      higher-dimensional truth.
+                    </Feature>
+                    <Feature title="Unity of Chaos and Order">
+                      Rotating the 4D object shows that the &ldquo;Buddha&rdquo;
+                      shape is just one perspective; as it turns, it morphs into
+                      other complex forms, suggesting that &ldquo;Truth&rdquo;
+                      changes depending on the observer&rsquo;s viewpoint.
+                    </Feature>
+                  </ul>
+
+                  <Heading>
+                    5. Quantum Interconnectedness (The CURBy Connection)
+                  </Heading>
+                  <p>
+                    By using the CURBy randomness beacon, your specific app adds
+                    a layer of modern mysticism.
+                  </p>
+                  <ul
+                    style={{
+                      paddingLeft: 0,
+                      margin: "8px 0",
+                      listStyle: "none",
+                    }}
+                  >
+                    <Feature title="Quantum Entanglement">
+                      Because your render is seeded by quantum entanglement,
+                      every &ldquo;pixel&rdquo; of your Buddha is technically
+                      connected to the fundamental randomness of the universe.
+                    </Feature>
+                    <Feature title="Non-Determinism">
+                      Most computer fractals are &ldquo;fake&rdquo; in that they
+                      are deterministic. By using CURBy, your Buddhabrot becomes
+                      a living snapshot of universal entropy&mdash;a digital
+                      form of &ldquo;divination&rdquo; where the universe itself
+                      chooses where the light falls.
+                    </Feature>
+                  </ul>
                 </div>
               )}
 
@@ -433,6 +688,28 @@ export default function AboutDialog() {
                     </li>
                   </ul>
 
+                  <Heading>Credits</Heading>
+                  <ul
+                    style={{
+                      paddingLeft: 20,
+                      margin: "8px 0",
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    <li>
+                      Implementation of the Buddhabrot WebGPU Explorer project
+                      by{" "}
+                      <a
+                        href="https://www.christianmarques.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "#c4b5fd", textDecoration: "none" }}
+                      >
+                        <strong>Christian Marques</strong>.
+                      </a>
+                    </li>
+                  </ul>
+
                   <div
                     style={{
                       marginTop: 32,
@@ -443,7 +720,7 @@ export default function AboutDialog() {
                       fontSize: 12,
                     }}
                   >
-                    Buddhabrot Explorer &copy; {new Date().getFullYear()}
+                    Buddhabrot WebGPU Explorer &copy; {new Date().getFullYear()}
                   </div>
                 </div>
               )}

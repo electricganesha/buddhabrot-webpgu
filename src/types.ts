@@ -18,6 +18,8 @@ export interface BuddhabrotProps {
   readonly maxIterations?: number;
   readonly nebulaEnabled?: boolean;
   readonly nebulaAesthetic?: boolean;
+  readonly colorCoreEnabled?: boolean;
+  readonly coreColorHex?: string;
   readonly rotXZ?: number;
   readonly rotYW?: number;
 }

@@ -18,8 +18,11 @@ export interface ControlPanelProps {
   // Toggle states
   readonly nebulaEnabled: boolean;
   readonly nebulaAestheticEnabled: boolean;
+  readonly colorCoreEnabled: boolean;
+  readonly coreColorHex: string;
   readonly rotationEnabled: boolean;
   readonly autoRotate: boolean;
+  readonly orbitEnabled: boolean;
 
   // Rotation angles (radians)
   readonly rotXZ: number;
@@ -30,8 +33,11 @@ export interface ControlPanelProps {
   readonly onUpdateRot: (plane: RotPlane, value: number) => void;
   readonly onNebulaChange: (enabled: boolean) => void;
   readonly onAestheticChange: (enabled: boolean) => void;
+  readonly onColorCoreChange: (enabled: boolean) => void;
+  readonly onCoreColorChange: (hex: string) => void;
   readonly onRotationChange: (enabled: boolean) => void;
   readonly onAutoRotateChange: (enabled: boolean) => void;
+  readonly onOrbitChange: (enabled: boolean) => void;
 }
 
 /** Props for {@link SliderRow}. */
@@ -215,16 +221,22 @@ export default function ControlPanel({
   maxIterations,
   nebulaEnabled,
   nebulaAestheticEnabled,
+  colorCoreEnabled,
+  coreColorHex,
   rotationEnabled,
   autoRotate,
+  orbitEnabled,
   rotXZ,
   rotYW,
   onUpdateIter,
   onUpdateRot,
   onNebulaChange,
   //   onAestheticChange,
+  onColorCoreChange,
+  onCoreColorChange,
   onRotationChange,
   onAutoRotateChange,
+  onOrbitChange,
 }: ControlPanelProps) {
   const showChannels = nebulaEnabled || nebulaAestheticEnabled;
   const [collapsed, setCollapsed] = useState(false);
@@ -348,6 +360,33 @@ export default function ControlPanel({
             checked={nebulaEnabled}
             onChange={onNebulaChange}
           />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Toggle
+              id="color-core-toggle"
+              label="Color highlight mode"
+              checked={colorCoreEnabled}
+              onChange={onColorCoreChange}
+              accentColor={coreColorHex}
+            />
+            {colorCoreEnabled && (
+              <input
+                type="color"
+                value={coreColorHex}
+                onChange={(e) => onCoreColorChange(e.target.value)}
+                style={{
+                  margin: 0,
+                  padding: 0,
+                  border: "none",
+                  width: 14,
+                  height: 14,
+                  background: "transparent",
+                  cursor: "pointer",
+                }}
+              />
+            )}
+          </div>
+
           {/* <Toggle
         id="aesthetic-toggle"
         label="Nebula palette"
@@ -361,6 +400,13 @@ export default function ControlPanel({
             checked={rotationEnabled}
             onChange={onRotationChange}
             accentColor="#c084fc"
+          />
+          <Toggle
+            id="orbit-toggle"
+            label="Orbit tracking"
+            checked={orbitEnabled}
+            onChange={onOrbitChange}
+            accentColor="#4488ff"
           />
 
           {rotationEnabled && (

@@ -29,12 +29,17 @@ function App() {
   const nebulaEnabledRef = useRef(false);
   const [nebulaAestheticEnabled, setNebulaAestheticEnabled] = useState(false);
   const nebulaAestheticEnabledRef = useRef(false);
+  const [colorCoreEnabled, setColorCoreEnabled] = useState(false);
+  const colorCoreEnabledRef = useRef(false);
+  const [coreColorHex, setCoreColorHex] = useState("#ffd700");
+  const coreColorHexRef = useRef("#ffd700");
   const [rotationEnabled, setRotationEnabled] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const autoRotateRef = useRef(false);
   const [rotXZ, setRotXZ] = useState(0);
   const [rotYW, setRotYW] = useState(0);
   const rotRef = useRef({ xz: 0, yw: 0 });
+  const [orbitEnabled, setOrbitEnabled] = useState(false);
 
   // --- WebGPU renderer lifecycle ---
   useEffect(() => {
@@ -88,6 +93,8 @@ function App() {
               maxIterations={max}
               nebulaEnabled={nebulaEnabledRef.current}
               nebulaAesthetic={nebulaAestheticEnabledRef.current}
+              colorCoreEnabled={colorCoreEnabledRef.current}
+              coreColorHex={coreColorHexRef.current}
               rotXZ={rotRef.current.xz}
               rotYW={rotRef.current.yw}
             />,
@@ -194,6 +201,18 @@ function App() {
     globalThis.__buddhabrotUpdate?.();
   }, []);
 
+  const handleColorCoreChange = useCallback((enabled: boolean) => {
+    setColorCoreEnabled(enabled);
+    colorCoreEnabledRef.current = enabled;
+    globalThis.__buddhabrotUpdate?.();
+  }, []);
+
+  const handleCoreColorChange = useCallback((hex: string) => {
+    setCoreColorHex(hex);
+    coreColorHexRef.current = hex;
+    globalThis.__buddhabrotUpdate?.();
+  }, []);
+
   const handleRotationChange = useCallback(
     (enabled: boolean) => {
       setRotationEnabled(enabled);
@@ -210,6 +229,15 @@ function App() {
   const handleAutoRotateChange = useCallback((enabled: boolean) => {
     setAutoRotate(enabled);
     autoRotateRef.current = enabled;
+  }, []);
+
+  const handleOrbitChange = useCallback((enabled: boolean) => {
+    setOrbitEnabled(enabled);
+    orbitEnabledRef.current = enabled;
+    globalThis.__buddhabrotOrbitEnabled = enabled;
+    if (!enabled) {
+      globalThis.__buddhabrotOrbit = null;
+    }
   }, []);
 
   // --- Render ---
@@ -267,16 +295,22 @@ function App() {
         maxIterations={maxIterations}
         nebulaEnabled={nebulaEnabled}
         nebulaAestheticEnabled={nebulaAestheticEnabled}
+        colorCoreEnabled={colorCoreEnabled}
+        coreColorHex={coreColorHex}
         rotationEnabled={rotationEnabled}
         autoRotate={autoRotate}
         rotXZ={rotXZ}
         rotYW={rotYW}
+        orbitEnabled={orbitEnabled}
         onUpdateIter={updateIter}
         onUpdateRot={updateRot}
         onNebulaChange={handleNebulaChange}
         onAestheticChange={handleAestheticChange}
+        onColorCoreChange={handleColorCoreChange}
+        onCoreColorChange={handleCoreColorChange}
         onRotationChange={handleRotationChange}
         onAutoRotateChange={handleAutoRotateChange}
+        onOrbitChange={handleOrbitChange}
       />
     </div>
   );

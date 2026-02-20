@@ -49,6 +49,8 @@ export default function Buddhabrot({
   maxIterations = 500,
   nebulaEnabled = false,
   nebulaAesthetic = false,
+  colorCoreEnabled = false,
+  coreColorHex = "#ffd700",
   rotXZ = 0,
   rotYW = 0,
 }: BuddhabrotProps) {
@@ -82,7 +84,8 @@ export default function Buddhabrot({
     animating: false,
   });
   const dragging = useRef(false);
-  const lastMouse = useRef({ x: 0, y: 0 });
+  const lastMouse = useRef({ x: -1000, y: -1000, active: false });
+  const lastOrbitStr = useRef("");
 
   // --- 3 storage buffers for RGB Nebulabrot channels ---
   const redBuffer = useMemo(
@@ -147,6 +150,24 @@ export default function Buddhabrot({
   useEffect(() => {
     nebulaAestheticUniform.value = nebulaAesthetic ? 1 : 0;
   }, [nebulaAesthetic, nebulaAestheticUniform]);
+
+  // Color Core mode uniforms
+  const colorCoreUniform = useMemo(() => uniform(0), []);
+  useEffect(() => {
+    colorCoreUniform.value = colorCoreEnabled ? 1 : 0;
+  }, [colorCoreEnabled, colorCoreUniform]);
+
+  const coreColorUniform = useMemo(() => uniform(vec4(1, 0.84, 0, 1)), []);
+  useEffect(() => {
+    // Parse hex string (e.g. "#ffd700") into RGB [0,1] floats
+    const hex = coreColorHex.replace(/^#/, "");
+    const bigint = parseInt(hex, 16);
+    const r = ((bigint >> 16) & 255) / 255;
+    const g = ((bigint >> 8) & 255) / 255;
+    const b = (bigint & 255) / 255;
+    // Set Vec4 uniform (R, G, B, A)
+    coreColorUniform.value.set(r, g, b, 1);
+  }, [coreColorHex, coreColorUniform]);
 
   // Sync iteration props → uniforms
   const prevIters = useRef({
@@ -322,7 +343,7 @@ export default function Buddhabrot({
       const countG = float(greenViewNode.element(index));
       const countB = float(blueViewNode.element(index));
 
-      const fc = max(frameCountUniform, 1);
+      const fc = max(frameCountUniform, 40);
       const normR = countR.div(fc);
       const normG = countG.div(fc);
       const normB = countB.div(fc);
@@ -333,7 +354,6 @@ export default function Buddhabrot({
 
       If(nebulaAestheticUniform.greaterThan(0.5), () => {
         // --- Nebula Aesthetic Mode ---
-        // Softer tone curve: sqrt(log) reveals more shadow detail for gaseous look
         const iR = sqrt(log(normR.mul(8).add(1)).div(log(float(50)))).clamp(
           0,
           1,
@@ -347,29 +367,20 @@ export default function Buddhabrot({
           1,
         );
 
-        // Color matrix: remap channels to nebula palette
-        // Short iters (R) → warm amber/red
-        // Mid iters (G)   → magenta/purple
-        // Long iters (B)  → cyan/blue
-        const outR = iR.mul(0.85).add(iG.mul(0.5)).add(iB.mul(0.1));
-        const outG = iR.mul(0.2).add(iG.mul(0.1)).add(iB.mul(0.6));
-        const outB = iR.mul(0.08).add(iG.mul(0.65)).add(iB.mul(1));
+        const outR = iR.mul(0.05).add(iG.mul(0.2)).add(iB.mul(1.0));
+        const outG = iR.mul(0.2).add(iG.mul(0.5)).add(iB.mul(1.0));
+        const outB = iR.mul(0.8).add(iG.mul(0.8)).add(iB.mul(1.0));
 
-        // Gamma correction (lower = brighter midtones)
         const gR = pow(outR.clamp(0, 1), float(0.75));
         const gG = pow(outG.clamp(0, 1), float(0.75));
         const gB = pow(outB.clamp(0, 1), float(0.75));
 
-        // Soft bloom glow
         const lum = gR.mul(0.2126).add(gG.mul(0.7152)).add(gB.mul(0.0722));
         const glow = pow(lum, float(2)).mul(0.25);
 
-        // Subtle warm shift at bottom, cool at top
-        const warmth = float(1).sub(vUv.y).mul(0.1).mul(lum);
-
-        r.assign(gR.add(glow).add(warmth).clamp(0, 1));
+        r.assign(gR.add(glow).clamp(0, 1));
         g.assign(gG.add(glow).clamp(0, 1));
-        b.assign(gB.add(glow).sub(warmth.mul(0.5)).clamp(0, 1));
+        b.assign(gB.add(glow).clamp(0, 1));
       }).Else(() => {
         // --- Classic Mode ---
         const intensityR = log(normR.mul(5).add(1))
@@ -394,6 +405,33 @@ export default function Buddhabrot({
         b.assign(cB.add(glow).clamp(0, 1));
       });
 
+      // Detect "whiteness" by multiplying the channels.
+      // We lower the exponent to make it far more sensitive, grabbing light grays/cyans too.
+      const whiteness = pow(r.mul(g).mul(b), float(0.8));
+
+      If(colorCoreUniform.greaterThan(0.5), () => {
+        // Apply custom color to bright areas
+        const customR = r.add(whiteness.mul(coreColorUniform.x)).clamp(0, 1);
+        const customG = g.add(whiteness.mul(coreColorUniform.y)).clamp(0, 1);
+        const customB = b.add(whiteness.mul(coreColorUniform.z)).clamp(0, 1);
+
+        // Slightly dim the base fractal channels inversely proportional to hue
+        // stringency to make the highlights pop out just like the old gold.
+        const outR = customR
+          .sub(whiteness.mul(float(1).sub(coreColorUniform.x).mul(0.8)))
+          .clamp(0, 1);
+        const outG = customG
+          .sub(whiteness.mul(float(1).sub(coreColorUniform.y).mul(0.8)))
+          .clamp(0, 1);
+        const outB = customB
+          .sub(whiteness.mul(float(1).sub(coreColorUniform.z).mul(0.8)))
+          .clamp(0, 1);
+
+        r.assign(outR);
+        g.assign(outG);
+        b.assign(outB);
+      });
+
       return vec4(r, g, b, 1);
     })();
     return m;
@@ -403,6 +441,8 @@ export default function Buddhabrot({
     blueViewNode,
     frameCountUniform,
     nebulaAestheticUniform,
+    colorCoreUniform,
+    coreColorUniform,
   ]);
 
   // --- Sync view uniforms and trigger clear ---
@@ -471,7 +511,8 @@ export default function Buddhabrot({
     const onMouseDown = (e: MouseEvent) => {
       if (e.button === 0) {
         dragging.current = true;
-        lastMouse.current = { x: e.clientX, y: e.clientY };
+        lastMouse.current.x = e.clientX;
+        lastMouse.current.y = e.clientY;
         globalThis.__buddhabrotOrbit = null;
       }
     };
@@ -492,20 +533,14 @@ export default function Buddhabrot({
         v.centerY += panY;
         t.centerX -= panX;
         t.centerY += panY;
-        lastMouse.current = { x: e.clientX, y: e.clientY };
+        lastMouse.current.x = e.clientX;
+        lastMouse.current.y = e.clientY;
         applyView();
         globalThis.__buddhabrotOrbit = null;
-      } else if (globalThis.__buddhabrotOrbitEnabled) {
-        globalThis.__buddhabrotOrbit = computeOrbit(
-          e.clientX,
-          e.clientY,
-          viewRef.current,
-          canvas,
-          { red: redIter, green: greenIter, blue: blueIter },
-          { xz: rotXZ, yw: rotYW },
-        );
       } else {
-        globalThis.__buddhabrotOrbit = null;
+        lastMouse.current.x = e.clientX;
+        lastMouse.current.y = e.clientY;
+        lastMouse.current.active = true;
       }
     };
 
@@ -514,6 +549,7 @@ export default function Buddhabrot({
     };
 
     const onMouseLeave = () => {
+      lastMouse.current.active = false;
       globalThis.__buddhabrotOrbit = null;
     };
 
@@ -555,6 +591,29 @@ export default function Buddhabrot({
         t.animating = false;
       }
       applyView();
+    }
+
+    if (
+      globalThis.__buddhabrotOrbitEnabled &&
+      !dragging.current &&
+      lastMouse.current.active
+    ) {
+      const { x, y } = lastMouse.current;
+      const key = `${x},${y},${v.zoom.toFixed(4)},${v.centerX.toFixed(5)},${v.centerY.toFixed(5)},${rotXZ.toFixed(4)},${rotYW.toFixed(4)}`;
+      if (key !== lastOrbitStr.current) {
+        lastOrbitStr.current = key;
+        globalThis.__buddhabrotOrbit = computeOrbit(
+          x,
+          y,
+          v,
+          gl.domElement,
+          { red: redIter, green: greenIter, blue: blueIter },
+          { xz: rotXZ, yw: rotYW },
+        );
+      }
+    } else if (lastOrbitStr.current !== "") {
+      globalThis.__buddhabrotOrbit = null;
+      lastOrbitStr.current = "";
     }
 
     const gpu = gl as unknown as WebGPURendererLike;

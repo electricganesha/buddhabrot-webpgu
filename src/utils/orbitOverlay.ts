@@ -78,11 +78,14 @@ function drawInfoLabel(
 export function syncCanvasSize(canvas: HTMLCanvasElement) {
   const parent = canvas.parentElement;
   if (parent) {
+    const dpr = window.devicePixelRatio || 1;
     const w = parent.clientWidth;
     const h = parent.clientHeight;
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
     }
   }
 }
@@ -108,7 +111,17 @@ export function drawOrbitFrame(
 
   const { points, redIter: rI, greenIter: gI } = orbit;
 
+  const dpr = window.devicePixelRatio || 1;
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
   drawOrbitPath(ctx, points, rI, gI);
   drawOrbitDots(ctx, points, rI, gI);
-  drawInfoLabel(ctx, orbit, canvas.height);
+  drawInfoLabel(
+    ctx,
+    orbit,
+    canvas.parentElement?.clientHeight ?? canvas.height / dpr,
+  );
+
+  ctx.restore();
 }
