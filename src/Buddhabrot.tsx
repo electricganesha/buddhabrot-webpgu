@@ -96,6 +96,7 @@ export default function Buddhabrot({
   const dragging = useRef(false);
   const lastMouse = useRef({ x: -1000, y: -1000, active: false });
   const lastOrbitStr = useRef("");
+  const lastPinchDist = useRef(0);
 
   // --- 3 storage buffers for RGB Nebulabrot channels ---
   const redBuffer = useMemo(
@@ -216,10 +217,13 @@ export default function Buddhabrot({
   // Time uniform for animation
   const timeUniform = useMemo(() => uniform(0), []);
 
+  const isInteractingUniform = useMemo(() => uniform(0), []);
+  const wasInteracting = useRef(false);
+
   // Performance budgeting uniform: controls how many threads execute in the current pass
   const activeBatchCountUniform = useMemo(() => uniform(BATCH_SIZE), []);
 
-  // Sync iteration props → uniforms
+  // Sync iteration props → trigger clear
   const prevIters = useRef({
     r: redIter,
     g: greenIter,
@@ -231,27 +235,6 @@ export default function Buddhabrot({
     heartbeat: heartbeatEnabled,
   });
   useEffect(() => {
-    let effectiveR: number, effectiveG: number, effectiveB: number;
-    if (nebulaAesthetic) {
-      // Nebula aesthetic: always use per-channel limits for color variation
-      effectiveR = redIter;
-      effectiveG = greenIter;
-      effectiveB = blueIter;
-    } else if (nebulaEnabled) {
-      // Nebulabrot: per-channel limits capped by maxIterations
-      effectiveR = Math.min(redIter, maxIterations);
-      effectiveG = Math.min(greenIter, maxIterations);
-      effectiveB = Math.min(blueIter, maxIterations);
-    } else {
-      // Classic mono: all channels use maxIterations
-      effectiveR = maxIterations;
-      effectiveG = maxIterations;
-      effectiveB = maxIterations;
-    }
-    redIterUniform.value = effectiveR;
-    greenIterUniform.value = effectiveG;
-    blueIterUniform.value = effectiveB;
-    maxAllIterUniform.value = Math.max(effectiveR, effectiveG, effectiveB);
     if (
       prevIters.current.r !== redIter ||
       prevIters.current.g !== greenIter ||
@@ -284,10 +267,6 @@ export default function Buddhabrot({
     maxIterations,
     nebulaEnabled,
     nebulaAesthetic,
-    redIterUniform,
-    greenIterUniform,
-    blueIterUniform,
-    maxAllIterUniform,
     frameCountUniform,
     ghostModeEnabled,
     heartbeatEnabled,
@@ -410,9 +389,13 @@ export default function Buddhabrot({
       const fc = float(0).toVar();
       If(ghostModeUniform.greaterThan(0.5), () => {
         fc.assign(max(frameCountUniform, 1));
-      }).Else(() => {
-        fc.assign(max(frameCountUniform, 40));
-      });
+      })
+        .ElseIf(isInteractingUniform.greaterThan(0.5), () => {
+          fc.assign(max(frameCountUniform, 1));
+        })
+        .Else(() => {
+          fc.assign(max(frameCountUniform, 40));
+        });
 
       const normR = countR.div(fc);
       const normG = countG.div(fc);
@@ -552,6 +535,7 @@ export default function Buddhabrot({
     heartbeatIntensityUniform,
     heartbeatWaveformUniform,
     timeUniform,
+    isInteractingUniform,
   ]);
 
   // --- Sync view uniforms and trigger clear ---
@@ -663,11 +647,97 @@ export default function Buddhabrot({
       globalThis.__buddhabrotOrbit = null;
     };
 
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+      if (e.touches.length === 1) {
+        dragging.current = true;
+        lastMouse.current.x = e.touches[0].clientX;
+        lastMouse.current.y = e.touches[0].clientY;
+        globalThis.__buddhabrotOrbit = null;
+      } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastPinchDist.current = Math.hypot(dx, dy);
+        dragging.current = false;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+      if (e.touches.length === 1 && dragging.current) {
+        const v = viewRef.current;
+        const t = zoomTarget.current;
+        const { meshSize } = getViewMetrics(canvas);
+        const dx = (e.touches[0].clientX - lastMouse.current.x) / meshSize;
+        const dy = (e.touches[0].clientY - lastMouse.current.y) / meshSize;
+        const halfW = DEFAULT_HALF_W / v.zoom;
+        const halfH = DEFAULT_HALF_H / v.zoom;
+        const panX = dx * 2 * halfW;
+        const panY = dy * 2 * halfH;
+        v.centerX -= panX;
+        v.centerY += panY;
+        t.centerX -= panX;
+        t.centerY += panY;
+        lastMouse.current.x = e.touches[0].clientX;
+        lastMouse.current.y = e.touches[0].clientY;
+        applyView();
+        globalThis.__buddhabrotOrbit = null;
+      } else if (e.touches.length === 2 && lastPinchDist.current > 0) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const zoomDelta = dist / lastPinchDist.current;
+        lastPinchDist.current = dist;
+
+        const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+
+        const t = zoomTarget.current;
+        const zoomFactor = zoomDelta;
+
+        const { fracX, fracY, mx, my } = mouseToFractal(
+          cx,
+          cy,
+          viewRef.current,
+          canvas,
+        );
+        const newZoom = Math.min(
+          MAX_ZOOM,
+          Math.max(MIN_ZOOM, t.zoom * zoomFactor),
+        );
+        const newHalfW = DEFAULT_HALF_W / newZoom;
+        const newHalfH = DEFAULT_HALF_H / newZoom;
+
+        t.centerX = fracX - (mx - 0.5) * 2 * newHalfW;
+        t.centerY = fracY - (my - 0.5) * 2 * newHalfH;
+        t.zoom = newZoom;
+        t.animating = true;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+      if (e.touches.length < 2) {
+        lastPinchDist.current = 0;
+      }
+      if (e.touches.length === 0) {
+        dragging.current = false;
+      } else if (e.touches.length === 1) {
+        lastMouse.current.x = e.touches[0].clientX;
+        lastMouse.current.y = e.touches[0].clientY;
+      }
+    };
+
     canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("mousedown", onMouseDown);
     globalThis.addEventListener("mousemove", onMouseMove);
     globalThis.addEventListener("mouseup", onMouseUp);
     canvas.addEventListener("mouseleave", onMouseLeave);
+
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    canvas.addEventListener("touchend", onTouchEnd, { passive: false });
+    canvas.addEventListener("touchcancel", onTouchEnd, { passive: false });
 
     return () => {
       canvas.removeEventListener("wheel", onWheel);
@@ -675,15 +745,63 @@ export default function Buddhabrot({
       globalThis.removeEventListener("mousemove", onMouseMove);
       globalThis.removeEventListener("mouseup", onMouseUp);
       canvas.removeEventListener("mouseleave", onMouseLeave);
+
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("touchend", onTouchEnd);
+      canvas.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [gl, applyView, redIter, greenIter, blueIter, rotXZ, rotYW]);
 
   useFrame(({ gl, clock }) => {
     timeUniform.value = clock.elapsedTime;
 
-    // Smooth zoom animation: lerp current view toward target
     const t = zoomTarget.current;
     const v = viewRef.current;
+    const interacting = dragging.current || t.animating;
+    isInteractingUniform.value = interacting ? 1 : 0;
+
+    if (wasInteracting.current && !interacting) {
+      needsClearRef.current = true;
+      frameCount.current = 0;
+      totalPointsDispatched.current = 0;
+      frameCountUniform.value = 1;
+    }
+    wasInteracting.current = interacting;
+
+    let effectiveR: number, effectiveG: number, effectiveB: number;
+    if (nebulaAesthetic) {
+      effectiveR = redIter;
+      effectiveG = greenIter;
+      effectiveB = blueIter;
+    } else if (nebulaEnabled) {
+      effectiveR = Math.min(redIter, maxIterations);
+      effectiveG = Math.min(greenIter, maxIterations);
+      effectiveB = Math.min(blueIter, maxIterations);
+    } else {
+      effectiveR = maxIterations;
+      effectiveG = maxIterations;
+      effectiveB = maxIterations;
+    }
+    let effectiveMax = Math.max(effectiveR, effectiveG, effectiveB);
+
+    if (interacting) {
+      const MAX_PREVIEW_ITERS = 200;
+      if (effectiveMax > MAX_PREVIEW_ITERS) {
+        const scale = MAX_PREVIEW_ITERS / effectiveMax;
+        effectiveR = Math.max(1, effectiveR * scale);
+        effectiveG = Math.max(1, effectiveG * scale);
+        effectiveB = Math.max(1, effectiveB * scale);
+        effectiveMax = MAX_PREVIEW_ITERS;
+      }
+    }
+
+    redIterUniform.value = effectiveR;
+    greenIterUniform.value = effectiveG;
+    blueIterUniform.value = effectiveB;
+    maxAllIterUniform.value = effectiveMax;
+
+    // Smooth zoom animation: lerp current view toward target
     if (t.animating) {
       v.zoom += (t.zoom - v.zoom) * ZOOM_DAMPING;
       v.centerX += (t.centerX - v.centerX) * ZOOM_DAMPING;

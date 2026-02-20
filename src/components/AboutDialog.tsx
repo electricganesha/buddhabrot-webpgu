@@ -72,7 +72,7 @@ function TabButton({
         fontWeight: active ? 600 : 500,
         fontSize: 13,
         transition: "all 0.2s ease-in-out",
-        flex: 1,
+        flex: "1 0 auto",
       }}
     >
       {children}
@@ -211,8 +211,10 @@ export default function AboutDialog() {
 
               {/* Tabs */}
               <div
+                className="about-tabs-container"
                 style={{
                   display: "flex",
+                  flexWrap: "wrap",
                   gap: 8,
                   background: "rgba(0, 0, 0, 0.2)",
                   padding: 6,

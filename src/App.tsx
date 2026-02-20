@@ -315,10 +315,11 @@ function App() {
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
+        width: "100dvw",
+        height: "100dvh",
         background: "#000",
         position: "relative",
+        overflow: "hidden",
       }}
     >
       <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
