@@ -10,7 +10,7 @@ export const BATCH_SIZE = 131072;
 
 /** Default view: the full Buddhabrot (rotated so head is up). */
 export const DEFAULT_CENTER_X = 0;
-export const DEFAULT_CENTER_Y = 0;
+export const DEFAULT_CENTER_Y = 0.5;
 export const DEFAULT_HALF_W = 1.5;
 export const DEFAULT_HALF_H = 1.75;
 
@@ -20,6 +20,7 @@ export const DEFAULT_HALF_H = 1.75;
  */
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 5000;
+export const DEFAULT_ZOOM = 0.5;
 
 /** Smooth zoom animation damping factor (0–1, lower = smoother). */
 export const ZOOM_DAMPING = 0.15;

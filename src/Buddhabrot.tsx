@@ -28,6 +28,7 @@ import {
   DEFAULT_HALF_H,
   MIN_ZOOM,
   MAX_ZOOM,
+  DEFAULT_ZOOM,
   ZOOM_DAMPING,
   COMPUTE_BUDGET_MS,
 } from "./constants";
@@ -74,13 +75,13 @@ export default function Buddhabrot({
   const viewRef = useRef<ViewState>({
     centerX: DEFAULT_CENTER_X,
     centerY: DEFAULT_CENTER_Y,
-    zoom: 1,
+    zoom: DEFAULT_ZOOM,
   });
   // Smooth zoom: target that the view lerps toward each frame
   const zoomTarget = useRef<ZoomTarget>({
     centerX: DEFAULT_CENTER_X,
     centerY: DEFAULT_CENTER_Y,
-    zoom: 1,
+    zoom: DEFAULT_ZOOM,
     animating: false,
   });
   const dragging = useRef(false);
@@ -131,7 +132,7 @@ export default function Buddhabrot({
 
   const seed = useMemo(() => uniform(0), []);
   const frameCountUniform = useMemo(() => uniform(1), []);
-  const zoomUniform = useMemo(() => uniform(1), []);
+  const zoomUniform = useMemo(() => uniform(DEFAULT_ZOOM), []);
 
   // Per-channel iteration limit uniforms
   const redIterUniform = useMemo(() => uniform(float(50)), []);

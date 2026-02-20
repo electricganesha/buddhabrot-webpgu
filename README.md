@@ -1,73 +1,34 @@
-# React + TypeScript + Vite
+# Buddhabrot Explorer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A real-time, interactive WebGPU explorer for the [Buddhabrot](https://superliminal.com/fractals/bbrot/) fractal, discovered by Melinda Green in 1993.
 
-Currently, two official plugins are available:
+While the standard Mandelbrot set maps the "destination" of points on a complex plane (whether they remain bounded or escape to infinity), the Buddhabrot maps the **journey**. It logs the exact flight paths of all escaping points. When overlaid, these billions of paths create a glowing, meditative figure resembling a seated Buddha.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Key Features
 
-## React Compiler
+- **Nebulabrot (RGB Mode):** Maps different iteration counts to Red, Green, and Blue channels. This reveals the intricate "energy layers" of the fractal.
+- **Juddhabrot (4D Rotation):** The underlying equation exists in four dimensions. This feature rotates the mathematical planes before projecting them to 2D, revealing hidden symmetries.
+- **Real-time Orbit Tracking:** Hover over the fractal to see the live escape trace of that exact coordinate mapped out on the screen in real-time.
+- **Color Highlight Mode:** Customize the glowing core of the fractal using a native color picker to tint the densest orbital crossing points.
 
-The React Compiler is currently not compatible with SWC. See [this issue](https://github.com/vitejs/vite-plugin-react/issues/428) for tracking the progress.
+## The Math & Philosophy
 
-## Expanding the ESLint configuration
+The calculation explores the equation: **$Z_{n+1} = Z_{n}^2 + C$**
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+We pick a random coordinate **$C$**, start **$Z$** at $0$, and iterate. If the value of $Z$ eventually grows larger than $2$, it "escapes". For the Buddhabrot, we re-run that exact escaping path and log every intermediate coordinate of $Z$ to a brightness map.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Because it reveals the "ghost" or the hidden structural beauty of chaos, the Buddhabrot has become a subject of both mathematical study and digital mysticism—a procedural intersection of sacred geometry and non-dual philosophy.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Tech Stack
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+This explorer relies heavily on **WebGPU** and the **Three Shading Language (TSL)** via Three.js to run millions of concurrent flight path simulations per second. The UI and orbital math routing are handled by **React** and **TypeScript**. It also integrates with **CURBy** (Colorado University Randomness Beacon) for true quantum entanglement-seeded randomness.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Development
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+# Install dependencies
+npm install
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Start the dev server
+npm run dev
 ```
